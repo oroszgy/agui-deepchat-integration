@@ -5,3 +5,4 @@ __pycache__
 node_modules/
 ui/dist
 ui/.cache
+ui/.parcel-cache

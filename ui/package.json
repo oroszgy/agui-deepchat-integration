@@ -1,21 +1,19 @@
 {
-  "name": "deep-chat-vanillajs",
+  "name": "deep-chat-typescript",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.html",
+  "description": "PolicyAlign DEMO - TypeScript implementation",
+  "source": "index.html",
   "scripts": {
-    "serve": "parcel index.html --open",
-    "build": "parcel build index.html"
+    "dev": "parcel index.html --open",
+    "build": "parcel build index.html",
+    "type-check": "tsc --noEmit",
+    "serve": "parcel index.html --open"
   },
   "dependencies": {
-    "parcel-bundler": "^1.6.1"
+    "parcel": "^2.9.0"
   },
   "devDependencies": {
-    "@babel/core": "7.2.0",
-    "typescript": "4.4.4"
+    "typescript": "^5.0.0"
   },
-  "resolutions": {
-    "@babel/preset-env": "7.13.8"
-  },
-  "keywords": []
+  "keywords": ["typescript", "chat", "deep-chat", "ag-ui"]
 }
