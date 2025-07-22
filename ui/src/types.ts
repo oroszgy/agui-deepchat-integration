@@ -62,8 +62,22 @@ export interface OpenAIResponse {
   }>;
 }
 
+// Vue-specific types
+export interface ChatConfig {
+  backendUrl: string;
+  placeholder?: string;
+  introMessage?: string;
+}
+
 declare global {
   interface Window {
     HTMLElement: typeof HTMLElement;
   }
+}
+
+// Vue component type declarations
+declare module '*.vue' {
+  import type { DefineComponent } from 'vue'
+  const component: DefineComponent<{}, {}, any>
+  export default component
 }

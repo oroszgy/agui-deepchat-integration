@@ -1,19 +1,30 @@
 {
-  "name": "deep-chat-typescript",
+  "name": "deep-chat-vue-typescript",
   "version": "1.0.0",
-  "description": "PolicyAlign DEMO - TypeScript implementation",
+  "description": "PolicyAlign DEMO - Vue.js + TypeScript implementation",
   "source": "index.html",
   "scripts": {
     "dev": "parcel index.html --open",
     "build": "parcel build index.html",
-    "type-check": "tsc --noEmit",
+    "type-check": "vue-tsc --noEmit",
     "serve": "parcel index.html --open"
   },
   "dependencies": {
-    "parcel": "^2.9.0"
+    "@types/node": "^24.0.15",
+    "@vue/runtime-dom": "^3.5.17",
+    "parcel": "^2.9.0",
+    "vue": "^3.3.0"
   },
   "devDependencies": {
-    "typescript": "^5.0.0"
+    "@parcel/transformer-vue": "^2.9.0",
+    "typescript": "^5.0.0",
+    "vue-tsc": "^1.8.0"
   },
-  "keywords": ["typescript", "chat", "deep-chat", "ag-ui"]
+  "keywords": [
+    "vue",
+    "typescript",
+    "chat",
+    "deep-chat",
+    "ag-ui"
+  ]
 }
