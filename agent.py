@@ -9,7 +9,7 @@ from pydantic_ai.providers.openai import OpenAIProvider
 load_dotenv()
 
 agent = Agent(
-    OpenAIModel('anthropic.claude-3-haiku-20240307-v1:0',
+    OpenAIModel(os.environ.get('OPENAI_MODEL_NAME'),
             provider=OpenAIProvider(
                 base_url=os.environ.get('OPENAI_API_BASE'),
                 api_key=os.environ.get('OPENAI_API_KEY'),
