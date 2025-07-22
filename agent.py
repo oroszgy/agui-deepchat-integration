@@ -1,4 +1,3 @@
-import asyncio
 import os
 
 from dotenv import load_dotenv
@@ -27,10 +26,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-print(app.routes)
-
 if __name__ == '__main__':
-    print(asyncio.run(agent.run("How are you?")).output)
     import uvicorn
 
     uvicorn.run('agent:app', port=9000)

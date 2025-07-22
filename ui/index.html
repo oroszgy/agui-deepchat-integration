@@ -28,6 +28,11 @@
 <!-- !!Either set the script as "module" or place your code in a timeout in order to wait for the component to load -->
 <script type="module">
     const elementRef = document.getElementById("chat-element");
+
+    // Persistent chat state
+    let chatHistory = [];
+    let threadId = `thread-${Date.now()}`;
+
     // Setting value via a property (easiest way)
     elementRef.history = [];
     elementRef.setAttribute(
@@ -42,7 +47,6 @@
         handler: async (body, signals) => {
             try {
                 // Map DeepChat roles to AG-UI roles and ensure correct structure
-                // Only include 'role' and 'content' in each message, and add user.id for user messages
                 const aguiMessages = (body.messages || []).map((m, index) => {
                     return {
                         id: `msg-${Date.now()}-${index}`, // Unique message ID
@@ -50,46 +54,56 @@
                         content: m.text || m.content || ''
                     };
                 });
-                console.log('aguiMessages:', JSON.stringify(aguiMessages, null, 2));
+
+                // Update chat history with new messages
+                for (const msg of aguiMessages) {
+                    const existingIndex = chatHistory.findIndex(h => h.id === msg.id);
+                    if (existingIndex === -1) {
+                        chatHistory.push(msg);
+                    }
+                }
+
+                // Print the complete chat history being sent
+                console.log('Sending complete chat history:', chatHistory);
+
                 if (!aguiMessages.length || !aguiMessages.some(m => m.role === 'user')) {
                     signals.onResponse({text: '[No user message to send]'});
                     return;
                 }
-                // Build complete AG-UI request body according to protocol
+
+                // Build complete AG-UI request body with full chat history
                 const requestBody = {
-                    threadId: 'thread-1',
+                    threadId: threadId, // Use persistent thread ID
                     runId: `run-${Date.now()}`,
-                    state: {},
+                    state: {
+                        conversationLength: chatHistory.length,
+                        lastMessageId: chatHistory[chatHistory.length - 1]?.id
+                    },
                     tools: [],
                     context: [],
                     forwardedProps: {},
-                    messages: aguiMessages
+                    messages: chatHistory // Send complete history, not just current messages
                 };
-                console.log('Full request:', JSON.stringify(requestBody, null, 2));
+
                 const response = await fetch('http://localhost:9000/', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify(requestBody)
                 });
+
                 if (!response.ok) {
                     const errorText = await response.text();
-                    console.error('Backend error:', errorText);
                     signals.onResponse({text: `[Backend error ${response.status}]: ${errorText}`});
                     return;
                 }
 
-                const contentType = response.headers.get('content-type');
-                console.log('Content-Type:', contentType);
-
-                // Get response as text first to see the raw format
                 const text = await response.text();
-                console.log('Raw response:', text);
 
-                // Try to detect if it's SSE format (starts with "data:")
+                // Handle streaming response (Server-Sent Events)
                 if (text.startsWith('data:') || text.includes('\ndata:')) {
-                    // Parse SSE format
                     const lines = text.split('\n');
                     let messageContent = '';
+                    let assistantMessageId = null;
 
                     for (const line of lines) {
                         if (line.startsWith('data: ')) {
@@ -97,32 +111,29 @@
                                 const jsonStr = line.substring(6).trim();
                                 if (jsonStr && jsonStr !== '[DONE]') {
                                     const data = JSON.parse(jsonStr);
-                                    console.log('Parsed SSE data:', data);
 
                                     // Handle pydantic-ai AG-UI specific message format
-                                    if (data.type === 'TEXT_MESSAGE_CONTENT' && data.delta) {
+                                    if (data.type === 'TEXT_MESSAGE_START' && data.messageId) {
+                                        assistantMessageId = data.messageId;
+                                    } else if (data.type === 'TEXT_MESSAGE_CONTENT' && data.delta) {
                                         messageContent += data.delta;
-                                        console.log('Added delta to messageContent:', data.delta);
-                                        console.log('Current messageContent:', messageContent);
-                                    } else if (data.type === 'message' || data.event === 'message') {
-                                        messageContent += data.content || data.data?.content || '';
-                                    } else if (data.type === 'response' && data.response) {
-                                        messageContent = data.response;
-                                        break;
-                                    } else if (data.content) {
-                                        messageContent += data.content;
-                                    } else if (typeof data === 'string') {
-                                        messageContent += data;
                                     }
                                 }
                             } catch (e) {
-                                console.error('Error parsing SSE line:', e, 'Line:', line);
+                                // Silently continue on parse errors
                             }
                         }
                     }
 
-                    console.log('Final messageContent before response:', messageContent);
                     if (messageContent) {
+                        // Add assistant's response to chat history
+                        const assistantMessage = {
+                            id: assistantMessageId || `assistant-${Date.now()}`,
+                            role: 'assistant',
+                            content: messageContent
+                        };
+                        chatHistory.push(assistantMessage);
+
                         signals.onResponse({text: messageContent});
                     } else {
                         signals.onResponse({text: '[No content found in streaming response]'});
@@ -133,7 +144,6 @@
                 // Try to parse as regular JSON
                 try {
                     const data = JSON.parse(text);
-                    console.log('Parsed JSON data:', data);
 
                     // AG-UI event handling
                     if (Array.isArray(data)) {
