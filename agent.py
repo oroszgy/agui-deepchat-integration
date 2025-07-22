@@ -2,6 +2,7 @@ import asyncio
 import os
 
 from dotenv import load_dotenv
+from starlette.middleware.cors import CORSMiddleware
 from pydantic_ai import Agent
 from pydantic_ai.models.openai import OpenAIModel
 from pydantic_ai.providers.openai import OpenAIProvider
@@ -17,6 +18,16 @@ agent = Agent(
                           ), instructions='Be fun!')
 app = agent.to_ag_ui()
 
+# Enable CORS for all origins (development only)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+print(app.routes)
 
 if __name__ == '__main__':
     print(asyncio.run(agent.run("How are you?")).output)

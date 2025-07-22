@@ -1,24 +1,21 @@
 {
-  "name": "deep-chat-vue3",
-  "version": "0.1.0",
-  "private": true,
+  "name": "deep-chat-vanillajs",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.html",
   "scripts": {
-    "serve": "vue-cli-service serve",
-    "build": "vue-cli-service build",
-    "lint": "vue-cli-service lint"
+    "serve": "parcel index.html --open",
+    "build": "parcel build index.html"
   },
   "dependencies": {
-    "deep-chat": "^2.2.2",
-    "typescript": "^5.7.2",
-    "vue": "^3.5.13"
+    "parcel-bundler": "^1.6.1"
   },
   "devDependencies": {
-    "@vue/cli-plugin-babel": "^4.4.0",
-    "@vue/cli-plugin-eslint": "^4.4.0",
-    "@vue/cli-service": "^4.4.0",
-    "babel-eslint": "^10.1.0",
-    "eslint": "^6.7.2",
-    "eslint-plugin-vue": "^9.33.0",
-    "vue-template-compiler": "^2.6.11"
-  }
+    "@babel/core": "7.2.0",
+    "typescript": "4.4.4"
+  },
+  "resolutions": {
+    "@babel/preset-env": "7.13.8"
+  },
+  "keywords": []
 }
