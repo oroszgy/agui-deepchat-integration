@@ -68,13 +68,22 @@ export interface BaseAGUIEvent {
   rawEvent?: any;
 }
 
-// Core AG-UI Message Structure
-export interface AGUIMessage {
+// Base Message Interface
+export interface BaseMessage {
   id: string;
-  role: 'user' | 'assistant' | 'tool';
-  content: string;
-  toolCalls?: ToolCall[];
-  toolCallId?: string; // For tool messages
+  role: string;
+  content?: string;
+  name?: string;
+}
+
+// Core AG-UI Message Structure - Updated to match specification
+export interface AGUIMessage extends BaseMessage {
+  id: string;
+  role: 'user' | 'assistant' | 'system' | 'tool' | 'developer';
+  content?: string;
+  name?: string;
+  toolCalls?: ToolCall[]; // For assistant messages
+  toolCallId?: string;   // For tool messages
 }
 
 // Tool Call Structure
@@ -196,7 +205,7 @@ export interface StateDeltaEvent extends BaseAGUIEvent {
 
 export interface MessagesSnapshotEvent extends BaseAGUIEvent {
   type: AGUIEventType.MESSAGES_SNAPSHOT;
-  messages: AGUIMessage[]; // Array of message objects
+  messages: Message[]; // Updated to use the more specific Message union type
 }
 
 // Special Events
@@ -237,6 +246,51 @@ export interface ResumeEvent extends BaseAGUIEvent {
   type: AGUIEventType.RESUME;
   [key: string]: any;
 }
+
+// Specific Message Types
+export interface UserMessage extends BaseMessage {
+  id: string;
+  role: 'user';
+  content: string;
+  name?: string;
+}
+
+export interface AssistantMessage extends BaseMessage {
+  id: string;
+  role: 'assistant';
+  content?: string;
+  name?: string;
+  toolCalls?: ToolCall[];
+}
+
+export interface SystemMessage extends BaseMessage {
+  id: string;
+  role: 'system';
+  content: string;
+  name?: string;
+}
+
+export interface ToolMessage extends BaseMessage {
+  id: string;
+  role: 'tool';
+  content: string;
+  toolCallId: string;
+}
+
+export interface DeveloperMessage extends BaseMessage {
+  id: string;
+  role: 'developer';
+  content: string;
+  name?: string;
+}
+
+// Message type union for type safety
+export type Message =
+  | UserMessage
+  | AssistantMessage
+  | SystemMessage
+  | ToolMessage
+  | DeveloperMessage;
 
 // Union type for all AG-UI events
 export type AGUIEvent =
