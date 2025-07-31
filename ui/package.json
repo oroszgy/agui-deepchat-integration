@@ -10,6 +10,8 @@
     "serve": "parcel index.html --open"
   },
   "dependencies": {
+    "@ag-ui/client": "^0.0.35",
+    "@bufbuild/protobuf": "^1.10.0",
     "@types/node": "^24.0.15",
     "@vue/runtime-dom": "^3.5.17",
     "parcel": "^2.9.0",
