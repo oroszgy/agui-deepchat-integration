@@ -2,25 +2,25 @@
   <div class="chat-container">
     <h1>{{ title }}</h1>
     <deep-chat
-      ref="chatElement"
-      id="chat-element"
-      demo="false"
-      :style="chatStyle"
+        ref="chatElement"
+        id="chat-element"
+        demo="false"
+        :style="chatStyle"
     ></deep-chat>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, nextTick, computed } from 'vue'
+import {computed, nextTick, onMounted, ref} from 'vue'
+import {EventType} from '@ag-ui/core'
 import type {
-  DeepChatElement,
-  DeepChatBody,
-  DeepChatSignals,
+  AGUIEvent,
   AGUIMessage,
   AGUIRequestBody,
-  StreamingEvent,
-  OpenAIResponse,
-  ChatConfig
+  ChatConfig,
+  DeepChatBody,
+  DeepChatElement,
+  DeepChatSignals
 } from './types'
 
 // Props
@@ -49,185 +49,190 @@ const chatStyle = computed(() => "border-radius: 10px; width: 96vw; height: calc
 // Chat functionality methods
 const handleConnection = async (body: DeepChatBody, signals: DeepChatSignals): Promise<void> => {
   try {
-    // Map DeepChat roles to AG-UI roles and ensure correct structure
-    const aguiMessages: AGUIMessage[] = (body.messages || []).map((m, index) => ({
-      id: `msg-${Date.now()}-${index}`,
-      role: m.role === 'ai' ? 'assistant' : m.role as 'user' | 'assistant',
-      content: m.text || m.content || ''
-    }))
-
-    // Update chat history with new messages
-    for (const msg of aguiMessages) {
-      const existingIndex = chatHistory.value.findIndex((h: AGUIMessage) => h.id === msg.id)
-      if (existingIndex === -1) {
-        chatHistory.value.push(msg)
-      }
-    }
-
-    console.log('Sending complete chat history:', chatHistory.value)
-
-    if (!aguiMessages.length || !aguiMessages.some(m => m.role === 'user')) {
-      signals.onResponse({ text: '[No user message to send]' })
+    if (!body.messages || body.messages.length === 0) {
+      signals.onResponse({text: props.config.introMessage || 'Hello, how can I help you?'})
       return
     }
 
-    const response = await sendToBackend()
-    await handleResponse(response, signals)
+    const lastMessage = body.messages[body.messages.length - 1]
+    const userMessage: AGUIMessage = {
+      id: `msg-${Date.now()}`,
+      role: 'user',
+      content: lastMessage.text || lastMessage.content || ''
+    }
 
-  } catch (e) {
-    const error = e as Error
-    signals.onResponse({ text: `[Handler error] ${error.message}` })
+    // Add user message to history
+    chatHistory.value.push(userMessage)
+
+    // Prepare request body using ag-ui types
+    const requestBody: AGUIRequestBody = {
+      messages: chatHistory.value,
+      threadId: threadId.value,
+      stream: true
+    }
+
+    // Make streaming request to backend
+    const response = await fetch(`${props.config.backendUrl}chat/stream`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'text/event-stream'
+      },
+      body: JSON.stringify(requestBody)
+    })
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`)
+    }
+
+    await handleStreamingResponse(response, signals)
+
+  } catch (error) {
+    console.error('Error in chat connection:', error)
+    signals.onResponse({
+      text: 'Sorry, I encountered an error. Please try again.'
+    })
   }
 }
 
-const sendToBackend = async (): Promise<Response> => {
-  const requestBody: AGUIRequestBody = {
-    threadId: threadId.value,
-    runId: `run-${Date.now()}`,
-    state: {
-      conversationLength: chatHistory.value.length,
-      lastMessageId: chatHistory.value[chatHistory.value.length - 1]?.id
-    },
-    tools: [],
-    context: [],
-    forwardedProps: {},
-    messages: chatHistory.value
+const handleStreamingResponse = async (response: Response, signals: DeepChatSignals): Promise<void> => {
+  const reader = response.body?.getReader()
+  const decoder = new TextDecoder()
+
+  let assistantMessage: AGUIMessage = {
+    id: `msg-${Date.now()}`,
+    role: 'assistant',
+    content: ''
   }
 
-  return await fetch(props.config.backendUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(requestBody)
-  })
-}
+  let fullResponse = ''
 
-const handleResponse = async (response: Response, signals: DeepChatSignals): Promise<void> => {
-  if (!response.ok) {
-    const errorText = await response.text()
-    signals.onResponse({ text: `[Backend error ${response.status}]: ${errorText}` })
-    return
+  if (!reader) {
+    throw new Error('Failed to get response reader')
   }
 
-  const text = await response.text()
-
-  // Handle streaming response (Server-Sent Events)
-  if (text.startsWith('data:') || text.includes('\ndata:')) {
-    handleStreamingResponse(text, signals)
-    return
-  }
-
-  // Try to parse as regular JSON
   try {
-    const data = JSON.parse(text)
-    handleJsonResponse(data, signals)
-  } catch (e) {
-    const error = e as Error
-    signals.onResponse({ text: `[JSON parse error] ${error.message}` })
-  }
-}
+    while (true) {
+      const {done, value} = await reader.read()
 
-const handleStreamingResponse = (text: string, signals: DeepChatSignals): void => {
-  const lines = text.split('\n')
-  let messageContent = ''
-  let assistantMessageId: string | null = null
+      if (done) break
 
-  for (const line of lines) {
-    if (line.startsWith('data: ')) {
-      try {
-        const jsonStr = line.substring(6).trim()
-        if (jsonStr && jsonStr !== '[DONE]') {
-          const data: StreamingEvent = JSON.parse(jsonStr)
+      const chunk = decoder.decode(value, {stream: true})
+      const lines = chunk.split('\n')
 
-          if (data.type === 'TEXT_MESSAGE_START' && data.messageId) {
-            assistantMessageId = data.messageId
-          } else if (data.type === 'TEXT_MESSAGE_CONTENT' && data.delta) {
-            messageContent += data.delta
+      for (const line of lines) {
+        if (line.trim() === '' || !line.startsWith('data: ')) continue
+
+        const eventData = line.substring(6) // Remove 'data: ' prefix
+
+        if (eventData === '[DONE]') {
+          // Finalize the assistant message
+          assistantMessage.content = fullResponse
+          chatHistory.value.push(assistantMessage)
+          signals.onResponse({text: fullResponse})
+          return
+        }
+
+        try {
+          // Parse the event data directly as JSON
+          const event = JSON.parse(eventData) as AGUIEvent
+
+          await processAGUIEvent(event, assistantMessage)
+
+          // Update full response for streaming display
+          if (event.type === EventType.TEXT_MESSAGE_CONTENT && event.data?.content) {
+            fullResponse += event.data.content
+            signals.onResponse({ text: fullResponse })
+          }
+        } catch (parseError) {
+          console.warn('Failed to parse event data:', parseError)
+          // Fallback: treat as plain text content
+          if (eventData.trim()) {
+            fullResponse += eventData
+            signals.onResponse({text: fullResponse})
           }
         }
-      } catch (e) {
-        // Silently continue on parse errors
       }
     }
-  }
-
-  if (messageContent) {
-    const assistantMessage: AGUIMessage = {
-      id: assistantMessageId || `assistant-${Date.now()}`,
-      role: 'assistant',
-      content: messageContent
-    }
-    chatHistory.value.push(assistantMessage)
-    signals.onResponse({ text: messageContent })
-  } else {
-    signals.onResponse({ text: '[No content found in streaming response]' })
+  } finally {
+    reader.releaseLock()
   }
 }
 
-const handleJsonResponse = (data: any, signals: DeepChatSignals): void => {
-  if ((data as OpenAIResponse).choices) {
-    const openAIData = data as OpenAIResponse
-    signals.onResponse({ text: openAIData.choices?.[0]?.delta?.content || '' })
-  } else {
-    signals.onResponse({ text: '[Unrecognized response format]' })
+const processAGUIEvent = async (event: AGUIEvent, assistantMessage: AGUIMessage): Promise<void> => {
+  switch (event.type) {
+    case EventType.TEXT_MESSAGE_START:
+      console.log('Text message started')
+      break
+
+    case EventType.TEXT_MESSAGE_CONTENT:
+      if (event.data?.content) {
+        assistantMessage.content = (assistantMessage.content || '') + event.data.content
+      }
+      break
+
+    case EventType.TEXT_MESSAGE_END:
+      console.log('Text message completed')
+      break
+
+    case EventType.TOOL_CALL_START:
+      console.log('Tool call started:', event.data)
+      break
+
+    case EventType.TOOL_CALL_END:
+      console.log('Tool call completed:', event.data)
+      break
+
+    case EventType.RUN_STARTED:
+      console.log('Run started:', event.data)
+      break
+
+    case EventType.RUN_FINISHED:
+      console.log('Run finished:', event.data)
+      break
+
+    case EventType.RUN_ERROR:
+      console.error('Run error:', event.data)
+      break
+
+    default:
+      console.log('Unhandled event type:', event.type, event.data)
   }
 }
 
-const setupChatElement = async (): Promise<void> => {
+// Initialize chat component
+onMounted(async () => {
   await nextTick()
 
-  if (!chatElement.value) {
-    console.error('Chat element not found')
-    return
+  if (chatElement.value) {
+    // Set up deep-chat connection handler
+    chatElement.value.connect = {
+      handler: handleConnection
+    }
+
+    console.log('Chat component initialized with ag-ui integration')
   }
-
-  // Configure the deep-chat element
-  chatElement.value.history = []
-
-  // Set textInput as a string attribute (not reactive binding)
-  chatElement.value.setAttribute(
-    'textInput',
-    JSON.stringify({
-      placeholder: { text: props.config.placeholder }
-    })
-  )
-
-  chatElement.value.setAttribute(
-    'introMessage',
-    JSON.stringify({
-      text: props.config.introMessage
-    })
-  )
-
-  // Set up the connection handler
-  chatElement.value.connect = {
-    handler: handleConnection
-  }
-}
-
-// Lifecycle
-onMounted(() => {
-  setupChatElement()
-})
-
-// Expose methods for parent components if needed
-defineExpose({
-  resetChat: () => {
-    chatHistory.value = []
-    threadId.value = `thread-${Date.now()}`
-  },
-  getChatHistory: () => chatHistory.value
 })
 </script>
 
 <style scoped>
 .chat-container {
-  font-family: sans-serif;
-  text-align: center;
-  justify-content: center;
-  display: grid;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 20px;
+  min-height: 100vh;
+  background-color: #f5f5f5;
 }
 
 h1 {
-  margin-bottom: 1rem;
+  color: #333;
+  margin-bottom: 20px;
+  font-family: 'Arial', sans-serif;
+}
+
+deep-chat {
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+  border: 1px solid #ddd;
 }
 </style>
