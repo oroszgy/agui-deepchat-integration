@@ -344,14 +344,6 @@ export interface StreamingEvent {
   data?: any;
 }
 
-export interface LegacyAGUIEvent {
-  event: 'error' | 'system' | 'message';
-  data?: {
-    message?: string;
-    content?: string;
-  };
-}
-
 export interface OpenAIResponse {
   choices?: Array<{
     delta?: {

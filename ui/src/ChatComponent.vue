@@ -19,7 +19,6 @@ import type {
   AGUIMessage,
   AGUIRequestBody,
   StreamingEvent,
-  AGUIEvent,
   OpenAIResponse,
   ChatConfig
 } from './types'
@@ -165,34 +164,9 @@ const handleStreamingResponse = (text: string, signals: DeepChatSignals): void =
 }
 
 const handleJsonResponse = (data: any, signals: DeepChatSignals): void => {
-  if (Array.isArray(data)) {
-    for (const event of data as AGUIEvent[]) {
-      if (event.event === 'error') {
-        signals.onResponse({ text: `[Error] ${event.data?.message || 'Unknown error'}` })
-        return
-      } else if (event.event === 'system') {
-        signals.onResponse({ text: `[System] ${event.data?.content || ''}` })
-        return
-      } else if (event.event === 'message') {
-        signals.onResponse({ text: event.data?.content || '' })
-        return
-      }
-    }
-    signals.onResponse({ text: '[No message event in response]' })
-  } else if (data.event) {
-    const event = data as AGUIEvent
-    if (event.event === 'error') {
-      signals.onResponse({ text: `[Error] ${event.data?.message || 'Unknown error'}` })
-    } else if (event.event === 'system') {
-      signals.onResponse({ text: `[System] ${event.data?.content || ''}` })
-    } else if (event.event === 'message') {
-      signals.onResponse({ text: event.data?.content || '' })
-    } else {
-      signals.onResponse({ text: `[Unknown event: ${event.event}]` })
-    }
-  } else if ((data as OpenAIResponse).choices) {
+  if ((data as OpenAIResponse).choices) {
     const openAIData = data as OpenAIResponse
-    signals.onResponse({ text: openAIData.choices?.[0]?.message?.content || '' })
+    signals.onResponse({ text: openAIData.choices?.[0]?.delta?.content || '' })
   } else {
     signals.onResponse({ text: '[Unrecognized response format]' })
   }
