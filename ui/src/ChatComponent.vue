@@ -37,77 +37,68 @@ const props = withDefaults(defineProps<Props>(), {
 
 // Reactive refs
 const chatElement = ref<DeepChatElement>()
+const chatHistory = ref<Message[]>([])
 const threadId = ref(`thread-${Date.now()}`)
 
 // Computed properties
 const chatStyle = computed(() => "border-radius: 10px; width: 96vw; height: calc(100vh - 120px); padding-top: 10px; font-size: 1.2rem;")
 
-// Handle streaming Server-Sent Events response
-const handleStreamingResponse = (text: string, signals: DeepChatSignals): void => {
-  const lines = text.split('\n')
-  let messageContent = ''
-  let assistantMessageId: string | null = null
-
-  for (const line of lines) {
-    if (line.startsWith('data: ')) {
-      try {
-        const jsonStr = line.substring(6).trim()
-        if (jsonStr && jsonStr !== '[DONE]') {
-          const data = JSON.parse(jsonStr)
-
-          if (data.type === 'TEXT_MESSAGE_START' && data.messageId) {
-            assistantMessageId = data.messageId
-            messageContent = '' // Reset content for new message
-          } else if (data.type === 'TEXT_MESSAGE_CONTENT' && data.delta) {
-            messageContent += data.delta
-          } else if (data.type === 'TEXT_MESSAGE_END') {
-            // Message is complete, we can finalize it
-            break
-          }
-        }
-      } catch (e) {
-        // Silently continue on parse errors for individual events
-        console.warn('Failed to parse streaming event:', line)
-      }
-    }
-  }
-
-  if (messageContent) {
-    signals.onResponse({ text: messageContent })
-  } else {
-    signals.onResponse({ text: '[No content found in streaming response]' })
-  }
-}
-
-// Chat functionality methods
+// Chat functionality methods - Real-time streaming implementation
 const handleConnection = async (body: DeepChatBody, signals: DeepChatSignals): Promise<void> => {
   try {
-    // For now, fall back to direct HTTP until ag-ui client build issues are resolved
-    // This maintains ag-ui protocol compatibility while avoiding build issues
-
     // Convert DeepChat messages to AG-UI Message format
-    const messages: Message[] = (body.messages || []).map((m, index) => ({
+    const newMessages: Message[] = (body.messages || []).map((m, index) => ({
       id: `msg-${Date.now()}-${index}`,
       role: m.role === 'ai' ? 'assistant' : (m.role as 'user' | 'assistant'),
       content: m.text || m.content || ''
     }))
 
-    if (!messages.length || !messages.some(m => m.role === 'user')) {
+    // Add new user messages to chat history (deep-chat sends the latest user message)
+    for (const msg of newMessages) {
+      if (msg.role === 'user') {
+        // Check if this user message is already in history to avoid duplicates
+        const existingIndex = chatHistory.value.findIndex(h =>
+          h.content === msg.content &&
+          h.role === 'user' &&
+          Math.abs(Date.now() - parseInt(h.id.split('-')[1])) < 5000 // Within 5 seconds
+        )
+        if (existingIndex === -1) {
+          chatHistory.value.push(msg)
+          console.log('Added user message to history:', msg)
+        }
+      }
+    }
+
+    if (!newMessages.length || !newMessages.some(m => m.role === 'user')) {
       signals.onResponse({ text: '[No user message to send]' })
       return
     }
 
-    console.log('Sending messages to agent:', messages)
+    console.log('Sending complete chat history:', chatHistory.value)
 
-    // Use AG-UI protocol format for the request body
+    // Use AG-UI protocol format for the request body with complete history
     const requestBody = {
-      messages,
+      messages: chatHistory.value, // Send complete history including the new user message
       runId: `run-${Date.now()}`,
       threadId: threadId.value,
-      state: {},
+      state: {
+        conversationLength: chatHistory.value.length,
+        lastMessageId: chatHistory.value[chatHistory.value.length - 1]?.id
+      },
       tools: [],
       context: [],
       forwardedProps: {}
+    }
+
+    // Create AbortController for cancellation support
+    const abortController = new AbortController()
+
+    // Set up stop button functionality
+    if (signals.stopClicked) {
+      signals.stopClicked.listener = () => {
+        console.log('Stream stop requested')
+        abortController.abort()
+      }
     }
 
     const response = await fetch(props.config.backendUrl, {
@@ -116,81 +107,173 @@ const handleConnection = async (body: DeepChatBody, signals: DeepChatSignals): P
         'Content-Type': 'application/json',
         'Accept': 'text/event-stream'
       },
-      body: JSON.stringify(requestBody)
+      body: JSON.stringify(requestBody),
+      signal: abortController.signal
     })
 
     if (!response.ok) {
       const errorText = await response.text()
-      signals.onResponse({ text: `[Backend error ${response.status}]: ${errorText}` })
+      signals.onResponse({ error: `Backend error ${response.status}: ${errorText}` })
       return
     }
 
-    // Handle the response (streaming Server-Sent Events format)
-    const text = await response.text()
+    // Signal that connection is established and stop loading indicator
+    if (signals.onOpen) {
+      signals.onOpen()
+    }
 
-    // Check if this is a streaming response (Server-Sent Events)
-    if (text.startsWith('data:') || text.includes('\ndata:')) {
-      handleStreamingResponse(text, signals)
-    } else {
-      // Try to parse as regular JSON
-      try {
-        const data = JSON.parse(text)
+    // Process the streaming response in real-time
+    const reader = response.body?.getReader()
+    const decoder = new TextDecoder()
 
-        // Handle AG-UI protocol response format
-        if (data.newMessages && data.newMessages.length > 0) {
-          const assistantMessage = data.newMessages
-            .filter((msg: Message) => msg.role === 'assistant')
-            .pop()
+    if (!reader) {
+      signals.onResponse({ error: 'Unable to read response stream' })
+      return
+    }
 
-          if (assistantMessage && assistantMessage.content) {
-            signals.onResponse({ text: assistantMessage.content })
-          } else {
-            signals.onResponse({ text: '[No response content from agent]' })
-          }
-        } else {
-          signals.onResponse({ text: '[No response from agent]' })
+    let buffer = ''
+    let assistantMessageContent = ''
+    let assistantMessageId: string | null = null
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read()
+
+        if (done) {
+          break
         }
-      } catch (e) {
-        // If not JSON, treat as plain text response
-        signals.onResponse({ text: text || '[Empty response]' })
+
+        // Decode the chunk and add to buffer
+        buffer += decoder.decode(value, { stream: true })
+
+        // Process complete lines from the buffer
+        const lines = buffer.split('\n')
+        // Keep the last incomplete line in the buffer
+        buffer = lines.pop() || ''
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            try {
+              const jsonStr = line.substring(6).trim()
+              if (jsonStr && jsonStr !== '[DONE]') {
+                const data = JSON.parse(jsonStr)
+
+                // Handle different event types
+                if (data.type === 'TEXT_MESSAGE_START' && data.messageId) {
+                  // Message started - deep-chat will handle this automatically
+                  assistantMessageId = data.messageId
+                  assistantMessageContent = '' // Reset content for new message
+                  console.log('Message started:', data.messageId)
+                } else if (data.type === 'TEXT_MESSAGE_CONTENT' && data.delta) {
+                  // Accumulate the complete message content
+                  assistantMessageContent += data.delta
+                  console.log('Received delta:', data.delta, 'Total content so far:', assistantMessageContent)
+
+                  // Don't send partial content - wait for complete message
+                } else if (data.type === 'TEXT_MESSAGE_END') {
+                  // Message complete - send the full response and add to chat history
+                  if (assistantMessageContent && assistantMessageId) {
+                    // Send the complete message to deep-chat
+                    signals.onResponse({ text: assistantMessageContent })
+
+                    const assistantMessage: Message = {
+                      id: assistantMessageId,
+                      role: 'assistant',
+                      content: assistantMessageContent
+                    }
+                    chatHistory.value.push(assistantMessage)
+                    console.log('Message completed and added to history:', assistantMessage)
+                  }
+                } else if (data.type === 'RUN_FINISHED') {
+                  // Run finished
+                  console.log('Run finished')
+                }
+              }
+            } catch (e) {
+              console.warn('Failed to parse streaming event:', line, e)
+            }
+          }
+        }
+      }
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        console.log('Stream was aborted by user')
+      } else {
+        console.error('Stream reading error:', error)
+        signals.onResponse({ error: 'Stream reading error' })
+      }
+    } finally {
+      reader.releaseLock()
+      // Signal that the stream is closed
+      if (signals.onClose) {
+        signals.onClose()
       }
     }
+
   } catch (e) {
     const error = e as Error
-    console.error('Agent error:', error)
-    signals.onResponse({ text: `[Agent error] ${error.message}` })
+    console.error('Connection error:', error)
+    signals.onResponse({ error: `Connection error: ${error.message}` })
   }
 }
 
 const setupChatElement = async (): Promise<void> => {
+  // Wait for the next tick and give deep-chat more time to initialize
   await nextTick()
 
+  // Add a small delay to ensure deep-chat is fully loaded
+  await new Promise(resolve => setTimeout(resolve, 100))
+
   if (!chatElement.value) {
-    console.error('Chat element not found')
+    console.error('Chat element not found after initialization delay')
     return
   }
 
-  // Configure the deep-chat element
-  chatElement.value.history = []
+  try {
+    // Configure the deep-chat element
+    chatElement.value.history = []
 
-  // Set textInput as a string attribute (not reactive binding)
-  chatElement.value.setAttribute(
-    'textInput',
-    JSON.stringify({
-      placeholder: { text: props.config.placeholder }
-    })
-  )
+    // Disable deep-chat's built-in streaming as it's not working properly
+    // if ('stream' in chatElement.value) {
+    //   chatElement.value.stream = true
+    // } else {
+    //   console.warn('Stream property not available on chat element, trying alternative approach')
+    //   // Alternative: set as attribute
+    //   chatElement.value.setAttribute('stream', 'true')
+    // }
 
-  chatElement.value.setAttribute(
-    'introMessage',
-    JSON.stringify({
-      text: props.config.introMessage
-    })
-  )
+    // Set textInput as a string attribute (not reactive binding)
+    chatElement.value.setAttribute(
+      'textInput',
+      JSON.stringify({
+        placeholder: { text: props.config.placeholder }
+      })
+    )
 
-  // Set up the connection handler
-  chatElement.value.connect = {
-    handler: handleConnection
+    chatElement.value.setAttribute(
+      'introMessage',
+      JSON.stringify({
+        text: props.config.introMessage
+      })
+    )
+
+    // Set up the connection handler with streaming support
+    chatElement.value.connect = {
+      handler: handleConnection
+    }
+  } catch (error) {
+    console.error('Error setting up chat element:', error)
+    // Fallback: try again after a longer delay
+    setTimeout(() => {
+      if (chatElement.value) {
+        try {
+          chatElement.value.stream = true
+          console.log('Successfully set stream property on retry')
+        } catch (e) {
+          console.error('Failed to set stream property on retry:', e)
+        }
+      }
+    }, 500)
   }
 }
 
