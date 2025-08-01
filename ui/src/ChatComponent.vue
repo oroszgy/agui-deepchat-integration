@@ -132,8 +132,8 @@ const handleConnection = async (body: DeepChatBody, signals: DeepChatSignals): P
     }
 
     let buffer = ''
-    let allAssistantMessages: Message[] = []
     let currentAssistantMessage: { id: string; content: string } | null = null
+    let hasStartedResponse = false
 
     try {
       while (true) {
@@ -157,6 +157,7 @@ const handleConnection = async (body: DeepChatBody, signals: DeepChatSignals): P
               const jsonStr = line.substring(6).trim()
               if (jsonStr && jsonStr !== '[DONE]') {
                 const data = JSON.parse(jsonStr)
+                console.log('Received streaming event:', data)
 
                 // Handle different event types
                 if (data.type === 'TEXT_MESSAGE_START' && data.messageId) {
@@ -169,27 +170,43 @@ const handleConnection = async (body: DeepChatBody, signals: DeepChatSignals): P
                 } else if (data.type === 'TEXT_MESSAGE_CONTENT' && data.delta && currentAssistantMessage) {
                   // Accumulate the message content
                   currentAssistantMessage.content += data.delta
+
+                  // Stream each delta immediately to deep-chat
+                  if (!hasStartedResponse) {
+                    // Start the response with the first delta
+                    signals.onResponse({ text: data.delta })
+                    hasStartedResponse = true
+                    console.log('Started streaming response with delta:', data.delta)
+                  } else {
+                    // Continue streaming with additional deltas
+                    signals.onResponse({ text: data.delta })
+                    console.log('Streamed delta:', data.delta)
+                  }
                 } else if (data.type === 'TEXT_MESSAGE_END' && currentAssistantMessage) {
-                  // Message complete - add to collection but don't send yet
+                  // Message complete - add to history
                   const assistantMessage: Message = {
                     id: currentAssistantMessage.id,
                     role: 'assistant',
                     content: currentAssistantMessage.content
                   }
-                  allAssistantMessages.push(assistantMessage)
                   chatHistory.value.push(assistantMessage)
                   console.log('Message completed and added to history:', assistantMessage)
+
+                  // Add separator for next message if there will be one
+                  if (!hasStartedResponse) {
+                    // Edge case: if no deltas were received, send the complete content
+                    signals.onResponse({ text: currentAssistantMessage.content })
+                    hasStartedResponse = true
+                  } else {
+                    // Add separator between messages
+                    signals.onResponse({ text: '\n\n' })
+                  }
+
                   currentAssistantMessage = null
                 } else if (data.type === 'RUN_FINISHED') {
-                  // Run finished - now send all accumulated messages as one response
+                  // Run finished
                   console.log('Run finished')
-                  if (allAssistantMessages.length > 0) {
-                    // Combine all assistant messages into one response
-                    const combinedContent = allAssistantMessages.map(msg => msg.content).join('\n\n')
-                    signals.onResponse({ text: combinedContent })
-                    console.log('Sent combined response to deep-chat:', combinedContent)
-                  }
-                  break // Exit the processing loop
+                  break
                 }
               }
             } catch (e) {
@@ -236,14 +253,8 @@ const setupChatElement = async (): Promise<void> => {
     // Configure the deep-chat element
     chatElement.value.history = []
 
-    // Disable deep-chat's built-in streaming as it's not working properly
-    // if ('stream' in chatElement.value) {
-    //   chatElement.value.stream = true
-    // } else {
-    //   console.warn('Stream property not available on chat element, trying alternative approach')
-    //   // Alternative: set as attribute
-    //   chatElement.value.setAttribute('stream', 'true')
-    // }
+    // Enable streaming properly for deep-chat
+    chatElement.value.stream = true
 
     // Set textInput as a string attribute (not reactive binding)
     chatElement.value.setAttribute(
