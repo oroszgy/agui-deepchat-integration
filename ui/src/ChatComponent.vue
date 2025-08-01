@@ -96,50 +96,6 @@ const handleTextMessageStart = (data: any): { id: string; content: string } => {
   return messageState
 }
 
-const handleTextMessageContent = (
-  data: any,
-  currentMessage: { id: string; content: string },
-  signals: DeepChatSignals,
-  hasStartedResponse: boolean
-): boolean => {
-  console.log('📝 TEXT_MESSAGE_CONTENT delta:', data.delta)
-  currentMessage.content += data.delta
-  console.log('Current message content length:', currentMessage.content.length)
-
-  if (!hasStartedResponse) {
-    console.log('🚀 Starting streaming response with first delta')
-    signals.onResponse({ text: data.delta })
-    return true
-  } else {
-    console.log('➕ Appending delta to existing response')
-    signals.onResponse({ text: data.delta })
-    return hasStartedResponse
-  }
-}
-
-const handleTextMessageEnd = (
-  currentMessage: { id: string; content: string },
-  signals: DeepChatSignals,
-  hasStartedResponse: boolean
-): boolean => {
-  console.log('✅ TEXT_MESSAGE_END for message:', currentMessage.id)
-  console.log('Final message content:', currentMessage.content)
-
-  const assistantMessage = createMessage(currentMessage.id, 'assistant', currentMessage.content)
-  chatHistory.value.push(assistantMessage)
-  console.log('📚 Updated chat history. Total messages:', chatHistory.value.length)
-
-  if (!hasStartedResponse) {
-    console.log('⚠️ Edge case: No deltas received, sending complete content')
-    signals.onResponse({ text: currentMessage.content })
-    return true
-  } else {
-    console.log('🔄 Adding separator for next message')
-    signals.onResponse({ text: '\n\n' })
-    return hasStartedResponse
-  }
-}
-
 // Main streaming handler
 const processStreamingEvents = async (
   reader: ReadableStreamDefaultReader<Uint8Array>,
@@ -149,7 +105,7 @@ const processStreamingEvents = async (
   const decoder = new TextDecoder()
   let buffer = ''
   let currentAssistantMessage: { id: string; content: string } | null = null
-  let hasStartedResponse = false
+  let streamResponse: any = null
 
   while (true) {
     const { done, value } = await reader.read()
@@ -177,39 +133,130 @@ const processStreamingEvents = async (
 
         switch (data.type) {
           case 'TEXT_MESSAGE_START':
+            console.log('🎬 Processing TEXT_MESSAGE_START event')
             if (data.messageId) {
               currentAssistantMessage = handleTextMessageStart(data)
+              console.log('✅ TEXT_MESSAGE_START processed successfully')
+            } else {
+              console.warn('⚠️ TEXT_MESSAGE_START missing messageId:', data)
             }
             break
 
           case 'TEXT_MESSAGE_CONTENT':
+            console.log('📝 Processing TEXT_MESSAGE_CONTENT event')
             if (data.delta && currentAssistantMessage) {
-              hasStartedResponse = handleTextMessageContent(
-                data,
-                currentAssistantMessage,
-                signals,
-                hasStartedResponse
-              )
+              currentAssistantMessage.content += data.delta
+
+              // Stream each delta immediately to deep-chat
+              if (!streamResponse) {
+                console.log('🚀 Starting streaming response with first delta')
+                signals.onResponse({ text: data.delta })
+                streamResponse = true // Mark that we've started the response
+              } else {
+                console.log('➕ Appending delta to existing response')
+                signals.onResponse({ text: data.delta })
+              }
+              console.log('✅ TEXT_MESSAGE_CONTENT processed successfully')
+            } else {
+              console.warn('⚠️ TEXT_MESSAGE_CONTENT missing delta or no current message:', {
+                hasDelta: !!data.delta,
+                hasCurrentMessage: !!currentAssistantMessage,
+                data
+              })
             }
             break
 
           case 'TEXT_MESSAGE_END':
+            console.log('🏁 Processing TEXT_MESSAGE_END event')
             if (currentAssistantMessage) {
-              hasStartedResponse = handleTextMessageEnd(
-                currentAssistantMessage,
-                signals,
-                hasStartedResponse
-              )
+              const assistantMessage = createMessage(currentAssistantMessage.id, 'assistant', currentAssistantMessage.content)
+              chatHistory.value.push(assistantMessage)
+              console.log('📚 Updated chat history. Total messages:', chatHistory.value.length)
+
+              // Handle case where no deltas were received
+              if (!streamResponse) {
+                console.log('⚠️ Edge case: No deltas received, sending complete content')
+                signals.onResponse({ text: currentAssistantMessage.content })
+              } else {
+                // Add separator for next message if there will be one
+                console.log('🔄 Adding separator for next message')
+                if (typeof streamResponse.onNext === 'function') {
+                  streamResponse.onNext({ text: '\n\n' })
+                } else {
+                  signals.onResponse({ text: '\n\n' })
+                }
+              }
+
               currentAssistantMessage = null
+              console.log('✅ TEXT_MESSAGE_END processed successfully')
+            } else {
+              console.warn('⚠️ TEXT_MESSAGE_END with no current message:', data)
             }
             break
 
+          case 'RUN_STARTED':
+            console.log('🚀 Processing RUN_STARTED event:', data)
+            console.log('✅ RUN_STARTED acknowledged')
+            break
+
           case 'RUN_FINISHED':
+            console.log('🏁 Processing RUN_FINISHED event:', data)
+            // Close the stream if it was opened
+            if (streamResponse && typeof streamResponse.onFinish === 'function') {
+              console.log('🔒 Closing stream response')
+              streamResponse.onFinish()
+            }
             console.log('🏁 RUN_FINISHED - ending stream processing')
             return
 
+          case 'TOOL_CALL_START':
+            console.log('🔧 Processing TOOL_CALL_START event:', data)
+            console.log('Tool call initiated:', {
+              toolCallId: data.toolCallId,
+              toolName: data.toolCallName,
+              parentMessageId: data.parentMessageId
+            })
+            break
+
+          case 'TOOL_CALL_ARGS':
+            console.log('🔧 Processing TOOL_CALL_ARGS event:', data)
+            console.log('Tool call args delta:', {
+              toolCallId: data.toolCallId,
+              delta: data.delta
+            })
+            break
+
+          case 'TOOL_CALL_END':
+            console.log('🔧 Processing TOOL_CALL_END event:', data)
+            console.log('Tool call completed:', { toolCallId: data.toolCallId })
+            break
+
+          case 'TOOL_CALL_RESULT':
+            console.log('🔧 Processing TOOL_CALL_RESULT event:', data)
+            console.log('Tool call result:', {
+              toolCallId: data.toolCallId,
+              messageId: data.messageId,
+              content: data.content,
+              role: data.role
+            })
+            break
+
+          case 'ERROR':
+            console.error('❌ Processing ERROR event:', data)
+            console.error('Error details:', {
+              message: data.message,
+              code: data.code,
+              details: data.details
+            })
+            if (streamResponse && typeof streamResponse.onFinish === 'function') {
+              streamResponse.onFinish()
+            }
+            signals.onResponse({ error: data.message || 'Unknown error occurred' })
+            return
+
           default:
-            console.log('🔍 Other event type:', data.type)
+            console.log('🔍 Processing unknown event type:', data.type)
+            console.log('🔍 Full event data:', data)
         }
       } catch (e) {
         console.warn('⚠️ Failed to parse streaming event:', line, e)
