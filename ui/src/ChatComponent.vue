@@ -101,7 +101,7 @@ const processStreamingEvents = async (
         if (!jsonStr || jsonStr === '[DONE]') continue
 
         const data = JSON.parse(jsonStr)
-        console.log('🎯 Received streaming event:', data)
+        // console.log('🎯 Received streaming event:', data)
 
         switch (data.type) {
           case 'TEXT_MESSAGE_START':
