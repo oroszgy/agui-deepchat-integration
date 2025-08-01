@@ -2,23 +2,19 @@
   <div class="chat-container">
     <h1>{{ title }}</h1>
     <deep-chat
-      ref="chatElement"
-      id="chat-element"
-      demo="false"
-      :style="chatStyle"
+        ref="chatElement"
+        id="chat-element"
+        demo="false"
+        :style="chatStyle"
     ></deep-chat>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, nextTick, computed } from 'vue'
-import type {
-  DeepChatElement,
-  DeepChatBody,
-  DeepChatSignals,
-  Message,
-  ChatConfig
-} from './types'
+import {computed, nextTick, onMounted, ref} from 'vue'
+import type {ChatConfig, DeepChatBody, DeepChatElement, DeepChatSignals, Message} from './types'
+import {APP_CONSTANTS, createDefaultConfig, Logger} from './constants'
+import {MessageUtils, RequestUtils, ValidationUtils} from './utils'
 
 interface Props {
   config?: ChatConfig
@@ -26,12 +22,7 @@ interface Props {
 }
 
 const props = withDefaults(defineProps<Props>(), {
-  config: () => ({
-    backendUrl: 'http://localhost:9000/',
-    placeholder: 'Welcome to the demo!',
-    introMessage: 'Hello, how can I help you?',
-    style: 'border-radius: 10px; width: 96vw; height: calc(100vh - 120px); padding-top: 10px; font-size: 1.2rem;'
-  }),
+  config: createDefaultConfig,
   title: 'PolicyAlign DEMO'
 })
 
@@ -41,68 +32,46 @@ const chatHistory = ref<Message[]>([])
 const threadId = ref(`thread-${Date.now()}`)
 
 const chatStyle = computed(() => {
-  const style = props.config.style || 'border-radius: 10px; width: 96vw; height: calc(100vh - 120px); padding-top: 10px; font-size: 1.2rem;'
-  console.log('🎨 Applied chat style:', style)
+  const style = props.config.style || APP_CONSTANTS.DEFAULT_CHAT_STYLE
+  Logger.style(style)
   return style
 })
 
+// Message processing functions
+const processIncomingMessages = (body: DeepChatBody): Message[] => {
+  const newMessages = MessageUtils.convertFromDeepChat(body.messages)
+  const userMessages = MessageUtils.filterNewUserMessages(newMessages, chatHistory.value)
+
+  userMessages.forEach(msg => {
+    chatHistory.value.push(msg)
+    Logger.success('Added user message to history', msg)
+  })
+
+  Logger.message('Current chat history length', chatHistory.value.length)
+  Logger.message('Complete chat history', chatHistory.value)
+
+  return newMessages
+}
+
 // Helper functions
 const createMessage = (id: string, role: Message['role'], content: string): Message => {
-  const message = { id, role, content }
+  const message = {id, role, content}
   console.log(`Created message:`, message)
   return message
-}
-
-const convertDeepChatMessages = (messages: DeepChatBody['messages'] = []): Message[] => {
-  console.log('Converting DeepChat messages:', messages)
-  const converted = messages.map((m, index) => createMessage(
-    `msg-${Date.now()}-${index}`,
-    m.role === 'ai' ? 'assistant' : (m.role as 'user' | 'assistant'),
-    m.text || m.content || ''
-  ))
-  console.log('Converted messages:', converted)
-  return converted
-}
-
-const isUserMessageDuplicate = (msg: Message): boolean => {
-  const isDuplicate = chatHistory.value.some(h =>
-    h.content === msg.content &&
-    h.role === 'user' &&
-    Math.abs(Date.now() - parseInt(h.id.split('-')[1])) < 5000
-  )
-  console.log(`Checking duplicate for message "${msg.content}":`, isDuplicate)
-  return isDuplicate
-}
-
-const createRequestBody = () => {
-  const body = {
-    messages: chatHistory.value,
-    runId: `run-${Date.now()}`,
-    threadId: threadId.value,
-    state: {
-      conversationLength: chatHistory.value.length,
-      lastMessageId: chatHistory.value[chatHistory.value.length - 1]?.id
-    },
-    tools: [],
-    context: [],
-    forwardedProps: {}
-  }
-  console.log('Created request body:', body)
-  return body
 }
 
 // Streaming event handlers
 const handleTextMessageStart = (data: any): { id: string; content: string } => {
   console.log('📩 TEXT_MESSAGE_START:', data)
-  const messageState = { id: data.messageId, content: '' }
+  const messageState = {id: data.messageId, content: ''}
   console.log('Initialized message tracking:', messageState)
   return messageState
 }
 
 // Main streaming handler
 const processStreamingEvents = async (
-  reader: ReadableStreamDefaultReader<Uint8Array>,
-  signals: DeepChatSignals
+    reader: ReadableStreamDefaultReader<Uint8Array>,
+    signals: DeepChatSignals
 ): Promise<void> => {
   console.log('🔄 Starting streaming event processing')
   const decoder = new TextDecoder()
@@ -111,13 +80,13 @@ const processStreamingEvents = async (
   let streamResponse: any = null
 
   while (true) {
-    const { done, value } = await reader.read()
+    const {done, value} = await reader.read()
     if (done) {
       console.log('📡 Stream reading completed')
       break
     }
 
-    buffer += decoder.decode(value, { stream: true })
+    buffer += decoder.decode(value, {stream: true})
     const lines = buffer.split('\n')
     buffer = lines.pop() || ''
 
@@ -153,11 +122,11 @@ const processStreamingEvents = async (
               // Stream each delta immediately to deep-chat
               if (!streamResponse) {
                 console.log('🚀 Starting streaming response with first delta')
-                signals.onResponse({ text: data.delta })
+                signals.onResponse({text: data.delta})
                 streamResponse = true // Mark that we've started the response
               } else {
                 console.log('➕ Appending delta to existing response')
-                signals.onResponse({ text: data.delta })
+                signals.onResponse({text: data.delta})
               }
               console.log('✅ TEXT_MESSAGE_CONTENT processed successfully')
             } else {
@@ -179,14 +148,14 @@ const processStreamingEvents = async (
               // Handle case where no deltas were received
               if (!streamResponse) {
                 console.log('⚠️ Edge case: No deltas received, sending complete content')
-                signals.onResponse({ text: currentAssistantMessage.content })
+                signals.onResponse({text: currentAssistantMessage.content})
               } else {
                 // Add separator for next message if there will be one
                 console.log('🔄 Adding separator for next message')
                 if (typeof streamResponse.onNext === 'function') {
-                  streamResponse.onNext({ text: '\n\n' })
+                  streamResponse.onNext({text: '\n\n'})
                 } else {
-                  signals.onResponse({ text: '\n\n' })
+                  signals.onResponse({text: '\n\n'})
                 }
               }
 
@@ -231,7 +200,7 @@ const processStreamingEvents = async (
 
           case 'TOOL_CALL_END':
             console.log('🔧 Processing TOOL_CALL_END event:', data)
-            console.log('Tool call completed:', { toolCallId: data.toolCallId })
+            console.log('Tool call completed:', {toolCallId: data.toolCallId})
             break
 
           case 'TOOL_CALL_RESULT':
@@ -254,7 +223,7 @@ const processStreamingEvents = async (
             if (streamResponse && typeof streamResponse.onFinish === 'function') {
               streamResponse.onFinish()
             }
-            signals.onResponse({ error: data.message || 'Unknown error occurred' })
+            signals.onResponse({error: data.message || 'Unknown error occurred'})
             return
 
           default:
@@ -270,97 +239,81 @@ const processStreamingEvents = async (
 
 // Main connection handler
 const handleConnection = async (body: DeepChatBody, signals: DeepChatSignals): Promise<void> => {
-  console.log('🔌 New connection request started')
-  console.log('Incoming body:', body)
+  Logger.connection('New connection request started')
+  Logger.connection('Incoming body', body)
 
   try {
-    // Process incoming messages
-    const newMessages = convertDeepChatMessages(body.messages)
-    console.log('📩 Processing new messages:', newMessages)
+    // Process incoming messages using utilities
+    const newMessages = processIncomingMessages(body)
 
-    // Add new user messages to history
-    const userMessages = newMessages.filter(msg => msg.role === 'user' && !isUserMessageDuplicate(msg))
-    console.log('👤 New user messages to add:', userMessages)
-
-    userMessages.forEach(msg => {
-      chatHistory.value.push(msg)
-      console.log('✅ Added user message to history:', msg)
-    })
-
-    console.log('📚 Current chat history length:', chatHistory.value.length)
-    console.log('📚 Complete chat history:', chatHistory.value)
-
-    if (!newMessages.some(m => m.role === 'user')) {
-      console.log('⚠️ No user messages found, sending placeholder response')
-      signals.onResponse({ text: '[No user message to send]' })
+    if (!ValidationUtils.hasUserMessage(newMessages)) {
+      Logger.warn('No user messages found, sending placeholder response', null)
+      signals.onResponse({text: '[No user message to send]'})
       return
     }
 
-    // Setup request
-    console.log('🌐 Setting up HTTP request to backend')
+    // Setup HTTP request
+    Logger.connection('Setting up HTTP request to backend')
     const abortController = new AbortController()
+
     if (signals.stopClicked) {
-      console.log('⏹️ Stop button handler registered')
+      Logger.connection('Stop button handler registered')
       signals.stopClicked.listener = () => {
-        console.log('🛑 Stream stop requested by user')
+        Logger.connection('Stream stop requested by user')
         abortController.abort()
       }
     }
 
-    console.log(`📤 Sending request to: ${props.config.backendUrl}`)
+    Logger.connection(`Sending request to: ${props.config.backendUrl}`)
     const response = await fetch(props.config.backendUrl, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'text/event-stream'
-      },
-      body: JSON.stringify(createRequestBody()),
+      headers: APP_CONSTANTS.HTTP_HEADERS,
+      body: JSON.stringify(RequestUtils.createBody(chatHistory.value, threadId.value)),
       signal: abortController.signal
     })
 
-    console.log(`📡 Response status: ${response.status} ${response.statusText}`)
+    Logger.connection(`Response status: ${response.status} ${response.statusText}`)
 
     if (!response.ok) {
-      console.error('❌ Backend request failed:', response.status, response.statusText)
       const errorText = await response.text()
-      console.error('Error details:', errorText)
-      signals.onResponse({ error: `Backend error ${response.status}: ${errorText}` })
+      Logger.error('Backend request failed', `${response.status}: ${errorText}`)
+      signals.onResponse({error: `Backend error ${response.status}: ${errorText}`})
       return
     }
 
-    console.log('✅ Backend connection established successfully')
+    Logger.success('Backend connection established successfully')
     signals.onOpen?.()
 
     const reader = response.body?.getReader()
     if (!reader) {
-      console.error('❌ Unable to get response stream reader')
-      signals.onResponse({ error: 'Unable to read response stream' })
+      Logger.error('Unable to get response stream reader', reader)
+      signals.onResponse({error: 'Unable to read response stream'})
       return
     }
 
-    console.log('📖 Stream reader obtained, starting event processing')
+    Logger.stream('Stream reader obtained, starting event processing')
     try {
       await processStreamingEvents(reader, signals)
-      console.log('✅ Streaming completed successfully')
+      Logger.success('Streaming completed successfully')
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') {
-        console.log('🛑 Stream was aborted by user')
+        Logger.connection('Stream was aborted by user')
       } else {
-        console.error('❌ Stream reading error:', error)
-        signals.onResponse({ error: 'Stream reading error' })
+        Logger.error('Stream reading error', error)
+        signals.onResponse({error: 'Stream reading error'})
       }
     } finally {
-      console.log('🔒 Releasing stream reader lock')
+      Logger.stream('Releasing stream reader lock')
       reader.releaseLock()
-      console.log('🔌 Closing connection')
+      Logger.connection('Closing connection')
       signals.onClose?.()
     }
 
   } catch (e) {
     const error = e as Error
-    console.error('💥 Connection error:', error)
-    console.error('Error stack:', error.stack)
-    signals.onResponse({ error: `Connection error: ${error.message}` })
+    Logger.error('Connection error', error.message)
+    Logger.error('Error stack', error.stack)
+    signals.onResponse({error: `Connection error: ${error.message}`})
   }
 }
 
@@ -378,7 +331,7 @@ const setupChatElement = async (): Promise<void> => {
     chatElement.value.history = []
 
     chatElement.value.setAttribute('textInput', JSON.stringify({
-      placeholder: { text: props.config.placeholder }
+      placeholder: {text: props.config.placeholder}
     }))
 
     chatElement.value.setAttribute('introMessage', JSON.stringify({
