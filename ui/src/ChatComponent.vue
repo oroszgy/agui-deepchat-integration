@@ -150,7 +150,7 @@ const processStreamingEvents = async (
               currentToolCalls.set(data.toolCallId, toolCall)
 
               // Display tool call start in UI
-              const toolDisplay = `\n\n🔄 **Starting tool call: ${data.toolCallName}**\n`
+              const toolDisplay = '\n\n🔄 Calling: `' + `${data.toolCallName}` + '`\n'
               if (!streamResponse) {
                 signals.onResponse({text: toolDisplay})
                 streamResponse = true
@@ -174,8 +174,7 @@ const processStreamingEvents = async (
                 const updatedToolCall = ToolCallUtils.updateToolCallArgs(toolCall, data.delta)
                 currentToolCalls.set(data.toolCallId, updatedToolCall)
 
-                // Stream the argument delta to show progress
-                signals.onResponse({text: data.delta})
+                // Don't stream the arguments to the UI - just track them internally
               }
               console.log('Tool call args delta:', {
                 toolCallId: data.toolCallId,
@@ -193,8 +192,8 @@ const processStreamingEvents = async (
                 currentToolCalls.set(data.toolCallId, completedToolCall)
 
                 // Show completion in UI
-                const completionDisplay = `\n⏳ **Tool call ${toolCall.name} completed, waiting for result...**\n`
-                signals.onResponse({text: completionDisplay})
+                // const completionDisplay = `\n⏳ **Tool call ${toolCall.name} completed, waiting for result...**\n`
+                signals.onResponse({text: "\n\n"})
               }
               console.log('Tool call completed:', {toolCallId: data.toolCallId})
             }
@@ -209,8 +208,8 @@ const processStreamingEvents = async (
                 currentToolCalls.set(data.toolCallId, resultToolCall)
 
                 // Display the tool result in UI
-                const resultDisplay = `\n✅ **Tool result for ${toolCall.name}:**\n${data.content}\n\n`
-                signals.onResponse({text: resultDisplay})
+                // const resultDisplay = `\n✅ **Tool result for ${toolCall.name}:**\n${data.content}\n\n`
+                // signals.onResponse({text: resultDisplay})
               }
               console.log('Tool call result:', {
                 toolCallId: data.toolCallId,
