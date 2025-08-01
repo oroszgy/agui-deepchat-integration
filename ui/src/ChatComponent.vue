@@ -23,7 +23,7 @@ interface Props {
 
 const props = withDefaults(defineProps<Props>(), {
   config: createDefaultConfig,
-  title: 'PolicyAlign DEMO'
+  title: 'DEMO'
 })
 
 // State management
