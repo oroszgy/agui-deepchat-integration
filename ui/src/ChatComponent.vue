@@ -373,7 +373,6 @@ const setupChatElement = async (): Promise<void> => {
 
   try {
     chatElement.value.history = []
-    chatElement.value.stream = true
 
     chatElement.value.setAttribute('textInput', JSON.stringify({
       placeholder: { text: props.config.placeholder }
@@ -383,7 +382,13 @@ const setupChatElement = async (): Promise<void> => {
       text: props.config.introMessage
     }))
 
-    chatElement.value.connect = { handler: handleConnection }
+    // In deep-chat v2.0.0+, stream property is part of the connect object
+    chatElement.value.connect = {
+      handler: handleConnection,
+      stream: true // Stream property moved here in v2.0.0
+    }
+
+    console.log('✅ Chat element configured with streaming enabled in connect object')
   } catch (error) {
     console.error('Error setting up chat element:', error)
   }

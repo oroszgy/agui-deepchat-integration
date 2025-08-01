@@ -26,9 +26,9 @@ export interface DeepChatSignals {
 
 export interface DeepChatElement extends HTMLElement {
   history: any[]
-  stream: boolean
   connect: {
     handler: (body: DeepChatBody, signals: DeepChatSignals) => Promise<void>
+    stream: boolean
   }
 }
 
