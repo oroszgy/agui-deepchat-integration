@@ -1,15 +1,7 @@
-// Define Vue feature flags to eliminate warnings
-declare global {
-  const __VUE_OPTIONS_API__: boolean
-  const __VUE_PROD_DEVTOOLS__: boolean
-  const __VUE_PROD_HYDRATION_MISMATCH_DETAILS__: boolean
-}
+// Import Vue feature flags first
+import './vue-flags'
 
-// Set feature flags
-;(globalThis as any).__VUE_OPTIONS_API__ = true
-;(globalThis as any).__VUE_PROD_DEVTOOLS__ = false
-;(globalThis as any).__VUE_PROD_HYDRATION_MISMATCH_DETAILS__ = false
-
+// Simple and clean main.ts
 import { createApp } from 'vue'
 import ChatComponent from './ChatComponent.vue'
 import type { ChatConfig } from './types'
