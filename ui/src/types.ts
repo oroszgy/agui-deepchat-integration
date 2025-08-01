@@ -37,6 +37,25 @@ export interface Message {
   id: string
   role: 'user' | 'assistant' | 'system' | 'tool' | 'developer'
   content: string
+  toolCalls?: ToolCall[]
+}
+
+// Tool call interfaces
+export interface ToolCall {
+  id: string
+  name: string
+  args: string
+  result?: string
+  status: 'started' | 'in_progress' | 'completed'
+}
+
+export interface ToolCallEvent {
+  toolCallId: string
+  toolCallName?: string
+  parentMessageId?: string
+  delta?: string
+  content?: string
+  role?: string
 }
 
 // Chat Configuration

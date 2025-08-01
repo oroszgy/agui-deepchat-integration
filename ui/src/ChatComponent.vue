@@ -12,9 +12,9 @@
 
 <script setup lang="ts">
 import {computed, nextTick, onMounted, ref} from 'vue'
-import type {ChatConfig, DeepChatBody, DeepChatElement, DeepChatSignals, Message} from './types'
+import type {ChatConfig, DeepChatBody, DeepChatElement, DeepChatSignals, Message, ToolCall} from './types'
 import {APP_CONSTANTS, createDefaultConfig, Logger} from './constants'
-import {MessageUtils, RequestUtils, ValidationUtils} from './utils'
+import {MessageUtils, RequestUtils, ValidationUtils, ToolCallUtils} from './utils'
 
 export interface ChatComponentProps {
   config?: ChatConfig
@@ -76,8 +76,9 @@ const processStreamingEvents = async (
   console.log('🔄 Starting streaming event processing')
   const decoder = new TextDecoder()
   let buffer = ''
-  let currentAssistantMessage: { id: string; content: string } | null = null
+  let currentAssistantMessage: { id: string; content: string; toolCalls: ToolCall[] } | null = null
   let streamResponse: any = null
+  let currentToolCalls = new Map<string, ToolCall>()
 
   while (true) {
     const {done, value} = await reader.read()
@@ -101,13 +102,17 @@ const processStreamingEvents = async (
         if (!jsonStr || jsonStr === '[DONE]') continue
 
         const data = JSON.parse(jsonStr)
-        // console.log('🎯 Received streaming event:', data)
 
         switch (data.type) {
           case 'TEXT_MESSAGE_START':
             console.log('🎬 Processing TEXT_MESSAGE_START event')
             if (data.messageId) {
-              currentAssistantMessage = handleTextMessageStart(data)
+              currentAssistantMessage = {
+                id: data.messageId,
+                content: '',
+                toolCalls: []
+              }
+              currentToolCalls.clear()
               console.log('✅ TEXT_MESSAGE_START processed successfully')
             } else {
               console.warn('⚠️ TEXT_MESSAGE_START missing messageId:', data)
@@ -123,7 +128,7 @@ const processStreamingEvents = async (
               if (!streamResponse) {
                 console.log('🚀 Starting streaming response with first delta')
                 signals.onResponse({text: data.delta})
-                streamResponse = true // Mark that we've started the response
+                streamResponse = true
               } else {
                 console.log('➕ Appending delta to existing response')
                 signals.onResponse({text: data.delta})
@@ -138,10 +143,97 @@ const processStreamingEvents = async (
             }
             break
 
+          case 'TOOL_CALL_START':
+            console.log('🔧 Processing TOOL_CALL_START event:', data)
+            if (data.toolCallId && data.toolCallName) {
+              const toolCall = ToolCallUtils.createToolCall(data.toolCallId, data.toolCallName)
+              currentToolCalls.set(data.toolCallId, toolCall)
+
+              // Display tool call start in UI
+              const toolDisplay = `\n\n🔄 **Starting tool call: ${data.toolCallName}**\n`
+              if (!streamResponse) {
+                signals.onResponse({text: toolDisplay})
+                streamResponse = true
+              } else {
+                signals.onResponse({text: toolDisplay})
+              }
+
+              console.log('Tool call initiated:', {
+                toolCallId: data.toolCallId,
+                toolName: data.toolCallName,
+                parentMessageId: data.parentMessageId
+              })
+            }
+            break
+
+          case 'TOOL_CALL_ARGS':
+            console.log('🔧 Processing TOOL_CALL_ARGS event:', data)
+            if (data.toolCallId && data.delta) {
+              const toolCall = currentToolCalls.get(data.toolCallId)
+              if (toolCall) {
+                const updatedToolCall = ToolCallUtils.updateToolCallArgs(toolCall, data.delta)
+                currentToolCalls.set(data.toolCallId, updatedToolCall)
+
+                // Stream the argument delta to show progress
+                signals.onResponse({text: data.delta})
+              }
+              console.log('Tool call args delta:', {
+                toolCallId: data.toolCallId,
+                delta: data.delta
+              })
+            }
+            break
+
+          case 'TOOL_CALL_END':
+            console.log('🔧 Processing TOOL_CALL_END event:', data)
+            if (data.toolCallId) {
+              const toolCall = currentToolCalls.get(data.toolCallId)
+              if (toolCall) {
+                const completedToolCall = ToolCallUtils.completeToolCall(toolCall)
+                currentToolCalls.set(data.toolCallId, completedToolCall)
+
+                // Show completion in UI
+                const completionDisplay = `\n⏳ **Tool call ${toolCall.name} completed, waiting for result...**\n`
+                signals.onResponse({text: completionDisplay})
+              }
+              console.log('Tool call completed:', {toolCallId: data.toolCallId})
+            }
+            break
+
+          case 'TOOL_CALL_RESULT':
+            console.log('🔧 Processing TOOL_CALL_RESULT event:', data)
+            if (data.toolCallId && data.content) {
+              const toolCall = currentToolCalls.get(data.toolCallId)
+              if (toolCall) {
+                const resultToolCall = ToolCallUtils.completeToolCall(toolCall, data.content)
+                currentToolCalls.set(data.toolCallId, resultToolCall)
+
+                // Display the tool result in UI
+                const resultDisplay = `\n✅ **Tool result for ${toolCall.name}:**\n${data.content}\n\n`
+                signals.onResponse({text: resultDisplay})
+              }
+              console.log('Tool call result:', {
+                toolCallId: data.toolCallId,
+                messageId: data.messageId,
+                content: data.content,
+                role: data.role
+              })
+            }
+            break
+
           case 'TEXT_MESSAGE_END':
             console.log('🏁 Processing TEXT_MESSAGE_END event')
             if (currentAssistantMessage) {
-              const assistantMessage = createMessage(currentAssistantMessage.id, 'assistant', currentAssistantMessage.content)
+              // Add all tool calls to the message
+              currentAssistantMessage.toolCalls = Array.from(currentToolCalls.values())
+
+              const assistantMessage: Message = {
+                id: currentAssistantMessage.id,
+                role: 'assistant',
+                content: currentAssistantMessage.content,
+                toolCalls: currentAssistantMessage.toolCalls.length > 0 ? currentAssistantMessage.toolCalls : undefined
+              }
+
               chatHistory.value.push(assistantMessage)
               console.log('📚 Updated chat history. Total messages:', chatHistory.value.length)
 
@@ -149,17 +241,10 @@ const processStreamingEvents = async (
               if (!streamResponse) {
                 console.log('⚠️ Edge case: No deltas received, sending complete content')
                 signals.onResponse({text: currentAssistantMessage.content})
-              } else {
-                // Add separator for next message if there will be one
-                console.log('🔄 Adding separator for next message')
-                if (typeof streamResponse.onNext === 'function') {
-                  streamResponse.onNext({text: '\n\n'})
-                } else {
-                  signals.onResponse({text: '\n\n'})
-                }
               }
 
               currentAssistantMessage = null
+              currentToolCalls.clear()
               console.log('✅ TEXT_MESSAGE_END processed successfully')
             } else {
               console.warn('⚠️ TEXT_MESSAGE_END with no current message:', data)
@@ -180,38 +265,6 @@ const processStreamingEvents = async (
             }
             console.log('🏁 RUN_FINISHED - ending stream processing')
             return
-
-          case 'TOOL_CALL_START':
-            console.log('🔧 Processing TOOL_CALL_START event:', data)
-            console.log('Tool call initiated:', {
-              toolCallId: data.toolCallId,
-              toolName: data.toolCallName,
-              parentMessageId: data.parentMessageId
-            })
-            break
-
-          case 'TOOL_CALL_ARGS':
-            console.log('🔧 Processing TOOL_CALL_ARGS event:', data)
-            console.log('Tool call args delta:', {
-              toolCallId: data.toolCallId,
-              delta: data.delta
-            })
-            break
-
-          case 'TOOL_CALL_END':
-            console.log('🔧 Processing TOOL_CALL_END event:', data)
-            console.log('Tool call completed:', {toolCallId: data.toolCallId})
-            break
-
-          case 'TOOL_CALL_RESULT':
-            console.log('🔧 Processing TOOL_CALL_RESULT event:', data)
-            console.log('Tool call result:', {
-              toolCallId: data.toolCallId,
-              messageId: data.messageId,
-              content: data.content,
-              role: data.role
-            })
-            break
 
           case 'ERROR':
             console.error('❌ Processing ERROR event:', data)
