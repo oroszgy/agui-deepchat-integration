@@ -132,8 +132,8 @@ const handleConnection = async (body: DeepChatBody, signals: DeepChatSignals): P
     }
 
     let buffer = ''
-    let assistantMessageContent = ''
-    let assistantMessageId: string | null = null
+    let allAssistantMessages: Message[] = []
+    let currentAssistantMessage: { id: string; content: string } | null = null
 
     try {
       while (true) {
@@ -160,33 +160,36 @@ const handleConnection = async (body: DeepChatBody, signals: DeepChatSignals): P
 
                 // Handle different event types
                 if (data.type === 'TEXT_MESSAGE_START' && data.messageId) {
-                  // Message started - deep-chat will handle this automatically
-                  assistantMessageId = data.messageId
-                  assistantMessageContent = '' // Reset content for new message
-                  console.log('Message started:', data.messageId)
-                } else if (data.type === 'TEXT_MESSAGE_CONTENT' && data.delta) {
-                  // Accumulate the complete message content
-                  assistantMessageContent += data.delta
-                  console.log('Received delta:', data.delta, 'Total content so far:', assistantMessageContent)
-
-                  // Don't send partial content - wait for complete message
-                } else if (data.type === 'TEXT_MESSAGE_END') {
-                  // Message complete - send the full response and add to chat history
-                  if (assistantMessageContent && assistantMessageId) {
-                    // Send the complete message to deep-chat
-                    signals.onResponse({ text: assistantMessageContent })
-
-                    const assistantMessage: Message = {
-                      id: assistantMessageId,
-                      role: 'assistant',
-                      content: assistantMessageContent
-                    }
-                    chatHistory.value.push(assistantMessage)
-                    console.log('Message completed and added to history:', assistantMessage)
+                  // Message started - initialize new message tracking
+                  currentAssistantMessage = {
+                    id: data.messageId,
+                    content: ''
                   }
+                  console.log('Message started:', data.messageId)
+                } else if (data.type === 'TEXT_MESSAGE_CONTENT' && data.delta && currentAssistantMessage) {
+                  // Accumulate the message content
+                  currentAssistantMessage.content += data.delta
+                } else if (data.type === 'TEXT_MESSAGE_END' && currentAssistantMessage) {
+                  // Message complete - add to collection but don't send yet
+                  const assistantMessage: Message = {
+                    id: currentAssistantMessage.id,
+                    role: 'assistant',
+                    content: currentAssistantMessage.content
+                  }
+                  allAssistantMessages.push(assistantMessage)
+                  chatHistory.value.push(assistantMessage)
+                  console.log('Message completed and added to history:', assistantMessage)
+                  currentAssistantMessage = null
                 } else if (data.type === 'RUN_FINISHED') {
-                  // Run finished
+                  // Run finished - now send all accumulated messages as one response
                   console.log('Run finished')
+                  if (allAssistantMessages.length > 0) {
+                    // Combine all assistant messages into one response
+                    const combinedContent = allAssistantMessages.map(msg => msg.content).join('\n\n')
+                    signals.onResponse({ text: combinedContent })
+                    console.log('Sent combined response to deep-chat:', combinedContent)
+                  }
+                  break // Exit the processing loop
                 }
               }
             } catch (e) {
