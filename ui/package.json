@@ -1,6 +1,6 @@
 {
   "name": "@oroszgy/ag-ui-deepchat-vue",
-  "version": "1.0.0",
+  "version": "0.1.1",
   "type": "module",
   "description": "A Vue.js chat component built on deep-chat and AG-UI client",
   "main": "dist/index.js",
