@@ -1,0 +1,36 @@
+# Source files
+src/
+*.ts
+*.vue
+
+# Build tools
+rollup.config.js
+tsconfig*.json
+vue.config.mjs
+
+# Development files
+index.html
+package-demo.json
+
+# Node modules and cache
+node_modules/
+.cache/
+.parcel-cache/
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,40 @@
+name: Publish Package to GitHub Packages
+
+on:
+  release:
+    types: [published]
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-and-publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+          registry-url: 'https://npm.pkg.github.com'
+          scope: '@oroszgy'
+
+      - name: Install dependencies
+        working-directory: ./ui
+        run: npm ci
+
+      - name: Build package
+        working-directory: ./ui
+        run: npm run build
+
+      - name: Publish to GitHub Packages
+        working-directory: ./ui
+        run: npm publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

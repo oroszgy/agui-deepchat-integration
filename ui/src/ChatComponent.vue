@@ -16,12 +16,12 @@ import type {ChatConfig, DeepChatBody, DeepChatElement, DeepChatSignals, Message
 import {APP_CONSTANTS, createDefaultConfig, Logger} from './constants'
 import {MessageUtils, RequestUtils, ValidationUtils} from './utils'
 
-interface Props {
+export interface ChatComponentProps {
   config?: ChatConfig
   title?: string
 }
 
-const props = withDefaults(defineProps<Props>(), {
+const props = withDefaults(defineProps<ChatComponentProps>(), {
   config: createDefaultConfig,
   title: 'DEMO'
 })
