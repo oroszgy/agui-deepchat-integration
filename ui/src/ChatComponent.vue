@@ -12,227 +12,365 @@
 
 <script setup lang="ts">
 import {computed, nextTick, onMounted, ref} from 'vue'
-import {EventType} from '@ag-ui/core'
-import type {
-  AGUIEvent,
-  AGUIMessage,
-  AGUIRequestBody,
-  ChatConfig,
-  DeepChatBody,
-  DeepChatElement,
-  DeepChatSignals
-} from './types'
+import type {ChatConfig, DeepChatBody, DeepChatElement, DeepChatSignals, Message} from './types'
+import {APP_CONSTANTS, createDefaultConfig, Logger} from './constants'
+import {MessageUtils, RequestUtils, ValidationUtils} from './utils'
 
-// Props
 interface Props {
   config?: ChatConfig
   title?: string
 }
 
 const props = withDefaults(defineProps<Props>(), {
-  config: () => ({
-    backendUrl: 'http://localhost:9000/',
-    placeholder: 'Welcome to the demo!',
-    introMessage: 'Hello, how can I help you?'
-  }),
-  title: 'PolicyAlign DEMO'
+  config: createDefaultConfig,
+  title: 'DEMO'
 })
 
-// Reactive refs
+// State management
 const chatElement = ref<DeepChatElement>()
-const chatHistory = ref<AGUIMessage[]>([])
+const chatHistory = ref<Message[]>([])
 const threadId = ref(`thread-${Date.now()}`)
 
-// Computed properties
-const chatStyle = computed(() => "border-radius: 10px; width: 96vw; height: calc(100vh - 120px); padding-top: 10px; font-size: 1.2rem;")
+const chatStyle = computed(() => {
+  const style = props.config.style || APP_CONSTANTS.DEFAULT_CHAT_STYLE
+  Logger.style(style)
+  return style
+})
 
-// Chat functionality methods
+// Message processing functions
+const processIncomingMessages = (body: DeepChatBody): Message[] => {
+  const newMessages = MessageUtils.convertFromDeepChat(body.messages)
+  const userMessages = MessageUtils.filterNewUserMessages(newMessages, chatHistory.value)
+
+  userMessages.forEach(msg => {
+    chatHistory.value.push(msg)
+    Logger.success('Added user message to history', msg)
+  })
+
+  Logger.message('Current chat history length', chatHistory.value.length)
+  Logger.message('Complete chat history', chatHistory.value)
+
+  return newMessages
+}
+
+// Helper functions
+const createMessage = (id: string, role: Message['role'], content: string): Message => {
+  const message = {id, role, content}
+  console.log(`Created message:`, message)
+  return message
+}
+
+// Streaming event handlers
+const handleTextMessageStart = (data: any): { id: string; content: string } => {
+  console.log('📩 TEXT_MESSAGE_START:', data)
+  const messageState = {id: data.messageId, content: ''}
+  console.log('Initialized message tracking:', messageState)
+  return messageState
+}
+
+// Main streaming handler
+const processStreamingEvents = async (
+    reader: ReadableStreamDefaultReader<Uint8Array>,
+    signals: DeepChatSignals
+): Promise<void> => {
+  console.log('🔄 Starting streaming event processing')
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let currentAssistantMessage: { id: string; content: string } | null = null
+  let streamResponse: any = null
+
+  while (true) {
+    const {done, value} = await reader.read()
+    if (done) {
+      console.log('📡 Stream reading completed')
+      break
+    }
+
+    buffer += decoder.decode(value, {stream: true})
+    const lines = buffer.split('\n')
+    buffer = lines.pop() || ''
+
+    for (const line of lines) {
+      if (!line.startsWith('data: ')) {
+        console.log('🔍 Skipping non-data line:', line.length > 0 ? `"${line}"` : '(empty line)')
+        continue
+      }
+
+      try {
+        const jsonStr = line.substring(6).trim()
+        if (!jsonStr || jsonStr === '[DONE]') continue
+
+        const data = JSON.parse(jsonStr)
+        console.log('🎯 Received streaming event:', data)
+
+        switch (data.type) {
+          case 'TEXT_MESSAGE_START':
+            console.log('🎬 Processing TEXT_MESSAGE_START event')
+            if (data.messageId) {
+              currentAssistantMessage = handleTextMessageStart(data)
+              console.log('✅ TEXT_MESSAGE_START processed successfully')
+            } else {
+              console.warn('⚠️ TEXT_MESSAGE_START missing messageId:', data)
+            }
+            break
+
+          case 'TEXT_MESSAGE_CONTENT':
+            console.log('📝 Processing TEXT_MESSAGE_CONTENT event')
+            if (data.delta && currentAssistantMessage) {
+              currentAssistantMessage.content += data.delta
+
+              // Stream each delta immediately to deep-chat
+              if (!streamResponse) {
+                console.log('🚀 Starting streaming response with first delta')
+                signals.onResponse({text: data.delta})
+                streamResponse = true // Mark that we've started the response
+              } else {
+                console.log('➕ Appending delta to existing response')
+                signals.onResponse({text: data.delta})
+              }
+              console.log('✅ TEXT_MESSAGE_CONTENT processed successfully')
+            } else {
+              console.warn('⚠️ TEXT_MESSAGE_CONTENT missing delta or no current message:', {
+                hasDelta: !!data.delta,
+                hasCurrentMessage: !!currentAssistantMessage,
+                data
+              })
+            }
+            break
+
+          case 'TEXT_MESSAGE_END':
+            console.log('🏁 Processing TEXT_MESSAGE_END event')
+            if (currentAssistantMessage) {
+              const assistantMessage = createMessage(currentAssistantMessage.id, 'assistant', currentAssistantMessage.content)
+              chatHistory.value.push(assistantMessage)
+              console.log('📚 Updated chat history. Total messages:', chatHistory.value.length)
+
+              // Handle case where no deltas were received
+              if (!streamResponse) {
+                console.log('⚠️ Edge case: No deltas received, sending complete content')
+                signals.onResponse({text: currentAssistantMessage.content})
+              } else {
+                // Add separator for next message if there will be one
+                console.log('🔄 Adding separator for next message')
+                if (typeof streamResponse.onNext === 'function') {
+                  streamResponse.onNext({text: '\n\n'})
+                } else {
+                  signals.onResponse({text: '\n\n'})
+                }
+              }
+
+              currentAssistantMessage = null
+              console.log('✅ TEXT_MESSAGE_END processed successfully')
+            } else {
+              console.warn('⚠️ TEXT_MESSAGE_END with no current message:', data)
+            }
+            break
+
+          case 'RUN_STARTED':
+            console.log('🚀 Processing RUN_STARTED event:', data)
+            console.log('✅ RUN_STARTED acknowledged')
+            break
+
+          case 'RUN_FINISHED':
+            console.log('🏁 Processing RUN_FINISHED event:', data)
+            // Close the stream if it was opened
+            if (streamResponse && typeof streamResponse.onFinish === 'function') {
+              console.log('🔒 Closing stream response')
+              streamResponse.onFinish()
+            }
+            console.log('🏁 RUN_FINISHED - ending stream processing')
+            return
+
+          case 'TOOL_CALL_START':
+            console.log('🔧 Processing TOOL_CALL_START event:', data)
+            console.log('Tool call initiated:', {
+              toolCallId: data.toolCallId,
+              toolName: data.toolCallName,
+              parentMessageId: data.parentMessageId
+            })
+            break
+
+          case 'TOOL_CALL_ARGS':
+            console.log('🔧 Processing TOOL_CALL_ARGS event:', data)
+            console.log('Tool call args delta:', {
+              toolCallId: data.toolCallId,
+              delta: data.delta
+            })
+            break
+
+          case 'TOOL_CALL_END':
+            console.log('🔧 Processing TOOL_CALL_END event:', data)
+            console.log('Tool call completed:', {toolCallId: data.toolCallId})
+            break
+
+          case 'TOOL_CALL_RESULT':
+            console.log('🔧 Processing TOOL_CALL_RESULT event:', data)
+            console.log('Tool call result:', {
+              toolCallId: data.toolCallId,
+              messageId: data.messageId,
+              content: data.content,
+              role: data.role
+            })
+            break
+
+          case 'ERROR':
+            console.error('❌ Processing ERROR event:', data)
+            console.error('Error details:', {
+              message: data.message,
+              code: data.code,
+              details: data.details
+            })
+            if (streamResponse && typeof streamResponse.onFinish === 'function') {
+              streamResponse.onFinish()
+            }
+            signals.onResponse({error: data.message || 'Unknown error occurred'})
+            return
+
+          default:
+            console.log('🔍 Processing unknown event type:', data.type)
+            console.log('🔍 Full event data:', data)
+        }
+      } catch (e) {
+        console.warn('⚠️ Failed to parse streaming event:', line, e)
+      }
+    }
+  }
+}
+
+// Main connection handler
 const handleConnection = async (body: DeepChatBody, signals: DeepChatSignals): Promise<void> => {
+  Logger.connection('New connection request started')
+  Logger.connection('Incoming body', body)
+
   try {
-    if (!body.messages || body.messages.length === 0) {
-      signals.onResponse({text: props.config.introMessage || 'Hello, how can I help you?'})
+    // Process incoming messages using utilities
+    const newMessages = processIncomingMessages(body)
+
+    if (!ValidationUtils.hasUserMessage(newMessages)) {
+      Logger.warn('No user messages found, sending placeholder response', null)
+      signals.onResponse({text: '[No user message to send]'})
       return
     }
 
-    const lastMessage = body.messages[body.messages.length - 1]
-    const userMessage: AGUIMessage = {
-      id: `msg-${Date.now()}`,
-      role: 'user',
-      content: lastMessage.text || lastMessage.content || ''
+    // Setup HTTP request
+    Logger.connection('Setting up HTTP request to backend')
+    const abortController = new AbortController()
+
+    if (signals.stopClicked) {
+      Logger.connection('Stop button handler registered')
+      signals.stopClicked.listener = () => {
+        Logger.connection('Stream stop requested by user')
+        abortController.abort()
+      }
     }
 
-    // Add user message to history
-    chatHistory.value.push(userMessage)
-
-    // Prepare request body using ag-ui types
-    const requestBody: AGUIRequestBody = {
-      messages: chatHistory.value,
-      threadId: threadId.value,
-      stream: true
-    }
-
-    // Make streaming request to backend
-    const response = await fetch(`${props.config.backendUrl}chat/stream`, {
+    Logger.connection(`Sending request to: ${props.config.backendUrl}`)
+    const response = await fetch(props.config.backendUrl, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'text/event-stream'
-      },
-      body: JSON.stringify(requestBody)
+      headers: APP_CONSTANTS.HTTP_HEADERS,
+      body: JSON.stringify(RequestUtils.createBody(chatHistory.value, threadId.value)),
+      signal: abortController.signal
     })
+
+    Logger.connection(`Response status: ${response.status} ${response.statusText}`)
 
     if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`)
+      const errorText = await response.text()
+      Logger.error('Backend request failed', `${response.status}: ${errorText}`)
+      signals.onResponse({error: `Backend error ${response.status}: ${errorText}`})
+      return
     }
 
-    await handleStreamingResponse(response, signals)
+    Logger.success('Backend connection established successfully')
+    signals.onOpen?.()
 
-  } catch (error) {
-    console.error('Error in chat connection:', error)
-    signals.onResponse({
-      text: 'Sorry, I encountered an error. Please try again.'
-    })
+    const reader = response.body?.getReader()
+    if (!reader) {
+      Logger.error('Unable to get response stream reader', reader)
+      signals.onResponse({error: 'Unable to read response stream'})
+      return
+    }
+
+    Logger.stream('Stream reader obtained, starting event processing')
+    try {
+      await processStreamingEvents(reader, signals)
+      Logger.success('Streaming completed successfully')
+    } catch (error) {
+      if (error instanceof Error && error.name === 'AbortError') {
+        Logger.connection('Stream was aborted by user')
+      } else {
+        Logger.error('Stream reading error', error)
+        signals.onResponse({error: 'Stream reading error'})
+      }
+    } finally {
+      Logger.stream('Releasing stream reader lock')
+      reader.releaseLock()
+      Logger.connection('Closing connection')
+      signals.onClose?.()
+    }
+
+  } catch (e) {
+    const error = e as Error
+    Logger.error('Connection error', error.message)
+    Logger.error('Error stack', error.stack)
+    signals.onResponse({error: `Connection error: ${error.message}`})
   }
 }
 
-const handleStreamingResponse = async (response: Response, signals: DeepChatSignals): Promise<void> => {
-  const reader = response.body?.getReader()
-  const decoder = new TextDecoder()
+// Component setup
+const setupChatElement = async (): Promise<void> => {
+  await nextTick()
+  await new Promise(resolve => setTimeout(resolve, 100))
 
-  let assistantMessage: AGUIMessage = {
-    id: `msg-${Date.now()}`,
-    role: 'assistant',
-    content: ''
-  }
-
-  let fullResponse = ''
-
-  if (!reader) {
-    throw new Error('Failed to get response reader')
+  if (!chatElement.value) {
+    console.error('Chat element not found after initialization delay')
+    return
   }
 
   try {
-    while (true) {
-      const {done, value} = await reader.read()
+    chatElement.value.history = []
 
-      if (done) break
+    chatElement.value.setAttribute('textInput', JSON.stringify({
+      placeholder: {text: props.config.placeholder}
+    }))
 
-      const chunk = decoder.decode(value, {stream: true})
-      const lines = chunk.split('\n')
+    chatElement.value.setAttribute('introMessage', JSON.stringify({
+      text: props.config.introMessage
+    }))
 
-      for (const line of lines) {
-        if (line.trim() === '' || !line.startsWith('data: ')) continue
-
-        const eventData = line.substring(6) // Remove 'data: ' prefix
-
-        if (eventData === '[DONE]') {
-          // Finalize the assistant message
-          assistantMessage.content = fullResponse
-          chatHistory.value.push(assistantMessage)
-          signals.onResponse({text: fullResponse})
-          return
-        }
-
-        try {
-          // Parse the event data directly as JSON
-          const event = JSON.parse(eventData) as AGUIEvent
-
-          await processAGUIEvent(event, assistantMessage)
-
-          // Update full response for streaming display
-          if (event.type === EventType.TEXT_MESSAGE_CONTENT && event.data?.content) {
-            fullResponse += event.data.content
-            signals.onResponse({ text: fullResponse })
-          }
-        } catch (parseError) {
-          console.warn('Failed to parse event data:', parseError)
-          // Fallback: treat as plain text content
-          if (eventData.trim()) {
-            fullResponse += eventData
-            signals.onResponse({text: fullResponse})
-          }
-        }
-      }
-    }
-  } finally {
-    reader.releaseLock()
-  }
-}
-
-const processAGUIEvent = async (event: AGUIEvent, assistantMessage: AGUIMessage): Promise<void> => {
-  switch (event.type) {
-    case EventType.TEXT_MESSAGE_START:
-      console.log('Text message started')
-      break
-
-    case EventType.TEXT_MESSAGE_CONTENT:
-      if (event.data?.content) {
-        assistantMessage.content = (assistantMessage.content || '') + event.data.content
-      }
-      break
-
-    case EventType.TEXT_MESSAGE_END:
-      console.log('Text message completed')
-      break
-
-    case EventType.TOOL_CALL_START:
-      console.log('Tool call started:', event.data)
-      break
-
-    case EventType.TOOL_CALL_END:
-      console.log('Tool call completed:', event.data)
-      break
-
-    case EventType.RUN_STARTED:
-      console.log('Run started:', event.data)
-      break
-
-    case EventType.RUN_FINISHED:
-      console.log('Run finished:', event.data)
-      break
-
-    case EventType.RUN_ERROR:
-      console.error('Run error:', event.data)
-      break
-
-    default:
-      console.log('Unhandled event type:', event.type, event.data)
-  }
-}
-
-// Initialize chat component
-onMounted(async () => {
-  await nextTick()
-
-  if (chatElement.value) {
-    // Set up deep-chat connection handler
+    // In deep-chat v2.0.0+, stream property is part of the connect object
     chatElement.value.connect = {
-      handler: handleConnection
+      handler: handleConnection,
+      stream: true // Stream property moved here in v2.0.0
     }
 
-    console.log('Chat component initialized with ag-ui integration')
+    console.log('✅ Chat element configured with streaming enabled in connect object')
+  } catch (error) {
+    console.error('Error setting up chat element:', error)
+  }
+}
+
+onMounted(setupChatElement)
+
+defineExpose({
+  resetChat: () => {
+    threadId.value = `thread-${Date.now()}`
+    if (chatElement.value) {
+      chatElement.value.history = []
+    }
   }
 })
 </script>
 
 <style scoped>
 .chat-container {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding: 20px;
-  min-height: 100vh;
-  background-color: #f5f5f5;
+  font-family: sans-serif;
+  text-align: center;
+  justify-content: center;
+  display: grid;
 }
 
 h1 {
-  color: #333;
-  margin-bottom: 20px;
-  font-family: 'Arial', sans-serif;
-}
-
-deep-chat {
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-  border: 1px solid #ddd;
+  margin-bottom: 1rem;
 }
 </style>

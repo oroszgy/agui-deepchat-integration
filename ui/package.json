@@ -10,13 +10,15 @@
     "serve": "parcel index.html --open"
   },
   "dependencies": {
-    "@ag-ui/core": "^0.0.35",
+    "@ag-ui/client": "^0.0.35",
+    "@bufbuild/protobuf": "^1.10.0",
     "@types/node": "^24.0.15",
     "@vue/runtime-dom": "^3.5.17",
     "parcel": "^2.9.0",
     "vue": "^3.3.0"
   },
   "devDependencies": {
+    "@parcel/optimizer-terser": "^2.15.4",
     "@parcel/transformer-vue": "^2.9.0",
     "typescript": "^5.0.0",
     "vue-tsc": "^1.8.0"
