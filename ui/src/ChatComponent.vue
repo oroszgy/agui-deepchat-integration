@@ -29,7 +29,8 @@ const props = withDefaults(defineProps<Props>(), {
   config: () => ({
     backendUrl: 'http://localhost:9000/',
     placeholder: 'Welcome to the demo!',
-    introMessage: 'Hello, how can I help you?'
+    introMessage: 'Hello, how can I help you?',
+    style: 'border-radius: 10px; width: 96vw; height: calc(100vh - 120px); padding-top: 10px; font-size: 1.2rem;'
   }),
   title: 'PolicyAlign DEMO'
 })
@@ -39,9 +40,11 @@ const chatElement = ref<DeepChatElement>()
 const chatHistory = ref<Message[]>([])
 const threadId = ref(`thread-${Date.now()}`)
 
-const chatStyle = computed(() =>
-  "border-radius: 10px; width: 96vw; height: calc(100vh - 120px); padding-top: 10px; font-size: 1.2rem;"
-)
+const chatStyle = computed(() => {
+  const style = props.config.style || 'border-radius: 10px; width: 96vw; height: calc(100vh - 120px); padding-top: 10px; font-size: 1.2rem;'
+  console.log('🎨 Applied chat style:', style)
+  return style
+})
 
 // Helper functions
 const createMessage = (id: string, role: Message['role'], content: string): Message => {

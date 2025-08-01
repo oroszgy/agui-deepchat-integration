@@ -44,4 +44,5 @@ export interface ChatConfig {
   backendUrl: string
   placeholder: string
   introMessage: string
+  style?: string // Optional custom CSS style for the chat element
 }
