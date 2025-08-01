@@ -13,7 +13,7 @@ const chatConfig: ChatConfig = {
 // Create and mount the Vue app
 const app = createApp(ChatComponent, {
   config: chatConfig,
-  title: 'PolicyAlign DEMO'
+  title: 'DeepSeek AG-UI DEMO'
 })
 
 app.mount('#app')
