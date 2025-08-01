@@ -13,6 +13,8 @@
     "build": "rollup -c",
     "build:types": "vue-tsc --declaration --emitDeclarationOnly --outDir dist",
     "dev": "rollup -c -w",
+    "serve": "parcel index.html --open",
+    "serve:prod": "parcel build index.html --dist-dir demo-dist",
     "prepublishOnly": "npm run build"
   },
   "repository": {
@@ -52,6 +54,9 @@
     "typescript": "^5.0.0",
     "vue": "^3.3.0",
     "vue-tsc": "^1.8.0",
-    "esbuild": "^0.19.0"
+    "esbuild": "^0.19.0",
+    "parcel": "^2.9.0",
+    "@parcel/transformer-vue": "^2.9.0",
+    "@parcel/optimizer-terser": "^2.15.4"
   }
 }
