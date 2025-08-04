@@ -53,20 +53,20 @@ const processIncomingMessages = (body: DeepChatBody): Message[] => {
   return newMessages
 }
 
-// Helper functions
-const createMessage = (id: string, role: Message['role'], content: string): Message => {
-  const message = {id, role, content}
-  console.log(`Created message:`, message)
-  return message
-}
-
-// Streaming event handlers
-const handleTextMessageStart = (data: any): { id: string; content: string } => {
-  console.log('📩 TEXT_MESSAGE_START:', data)
-  const messageState = {id: data.messageId, content: ''}
-  console.log('Initialized message tracking:', messageState)
-  return messageState
-}
+// // Helper functions
+// const createMessage = (id: string, role: Message['role'], content: string): Message => {
+//   const message = {id, role, content}
+//   console.log(`Created message:`, message)
+//   return message
+// }
+//
+// // Streaming event handlers
+// const handleTextMessageStart = (data: any): { id: string; content: string } => {
+//   console.log('📩 TEXT_MESSAGE_START:', data)
+//   const messageState = {id: data.messageId, content: ''}
+//   console.log('Initialized message tracking:', messageState)
+//   return messageState
+// }
 
 // Main streaming handler
 const processStreamingEvents = async (
@@ -79,6 +79,8 @@ const processStreamingEvents = async (
   let currentAssistantMessage: { id: string; content: string; toolCalls: ToolCall[] } | null = null
   let streamResponse: any = null
   let currentToolCalls = new Map<string, ToolCall>()
+  let toolUsage: boolean = false
+  // let isFirstChunk: Boolean = true
 
   while (true) {
     const {done, value} = await reader.read()
@@ -92,8 +94,8 @@ const processStreamingEvents = async (
     buffer = lines.pop() || ''
 
     for (const line of lines) {
-      if (!line.startsWith('data: ')) {
-        console.log('🔍 Skipping non-data line:', line.length > 0 ? `"${line}"` : '(empty line)')
+      if (!line.startsWith('data: ') && line.length != 0) {
+        console.log('🔍 Skipping non-data line:', `"${line}"`)
         continue
       }
 
@@ -113,7 +115,7 @@ const processStreamingEvents = async (
                 toolCalls: []
               }
               currentToolCalls.clear()
-              console.log('✅ TEXT_MESSAGE_START processed successfully')
+              // console.log('✅ TEXT_MESSAGE_START processed successfully')
             } else {
               console.warn('⚠️ TEXT_MESSAGE_START missing messageId:', data)
             }
@@ -126,14 +128,16 @@ const processStreamingEvents = async (
 
               // Stream each delta immediately to deep-chat
               if (!streamResponse) {
-                console.log('🚀 Starting streaming response with first delta')
-                signals.onResponse({text: data.delta})
+                console.log('🚀 Starting streaming response with first delta with tools: ' + toolUsage)
+                signals.onResponse({text: data.delta, overwrite: toolUsage})
+                toolUsage = false
                 streamResponse = true
               } else {
                 console.log('➕ Appending delta to existing response')
-                signals.onResponse({text: data.delta})
+                signals.onResponse({text: data.delta, overwrite: toolUsage})
+                toolUsage = false
               }
-              console.log('✅ TEXT_MESSAGE_CONTENT processed successfully')
+              // console.log('✅ TEXT_MESSAGE_CONTENT processed successfully')
             } else {
               console.warn('⚠️ TEXT_MESSAGE_CONTENT missing delta or no current message:', {
                 hasDelta: !!data.delta,
@@ -148,6 +152,7 @@ const processStreamingEvents = async (
             if (data.toolCallId && data.toolCallName) {
               const toolCall = ToolCallUtils.createToolCall(data.toolCallId, data.toolCallName)
               currentToolCalls.set(data.toolCallId, toolCall)
+              toolUsage = true
 
               // Display tool call start in UI
               const toolDisplay = '\n\n🔄 Calling: `' + `${data.toolCallName}` + '`\n'
@@ -158,11 +163,11 @@ const processStreamingEvents = async (
                 signals.onResponse({text: toolDisplay})
               }
 
-              console.log('Tool call initiated:', {
-                toolCallId: data.toolCallId,
-                toolName: data.toolCallName,
-                parentMessageId: data.parentMessageId
-              })
+              // console.log('Tool call initiated:', {
+              //   toolCallId: data.toolCallId,
+              //   toolName: data.toolCallName,
+              //   parentMessageId: data.parentMessageId
+              // })
             }
             break
 
@@ -176,10 +181,10 @@ const processStreamingEvents = async (
 
                 // Don't stream the arguments to the UI - just track them internally
               }
-              console.log('Tool call args delta:', {
-                toolCallId: data.toolCallId,
-                delta: data.delta
-              })
+              // console.log('Tool call args delta:', {
+              //   toolCallId: data.toolCallId,
+              //   delta: data.delta
+              // })
             }
             break
 
@@ -244,15 +249,15 @@ const processStreamingEvents = async (
 
               currentAssistantMessage = null
               currentToolCalls.clear()
-              console.log('✅ TEXT_MESSAGE_END processed successfully')
+              // console.log('✅ TEXT_MESSAGE_END processed successfully')
             } else {
-              console.warn('⚠️ TEXT_MESSAGE_END with no current message:', data)
+              // console.warn('⚠️ TEXT_MESSAGE_END with no current message:', data)
             }
             break
 
           case 'RUN_STARTED':
             console.log('🚀 Processing RUN_STARTED event:', data)
-            console.log('✅ RUN_STARTED acknowledged')
+            // console.log('✅ RUN_STARTED acknowledged')
             break
 
           case 'RUN_FINISHED':
@@ -262,7 +267,7 @@ const processStreamingEvents = async (
               console.log('🔒 Closing stream response')
               streamResponse.onFinish()
             }
-            console.log('🏁 RUN_FINISHED - ending stream processing')
+            // console.log('🏁 RUN_FINISHED - ending stream processing')
             return
 
           case 'ERROR':
