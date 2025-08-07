@@ -6,14 +6,14 @@ import {APP_CONSTANTS, Logger} from './constants'
 export const MessageUtils = {
     create: (id: string, role: Message['role'], content: string): Message => {
         const message = {id, role, content}
-        Logger.message('Created message', message)
+        // Logger.message('Created message', message)
         return message
     },
 
     generateId: (index: number): string => `msg-${Date.now()}-${index}`,
 
     convertFromDeepChat: (messages: DeepChatBody['messages'] = []): Message[] => {
-        Logger.message('Converting DeepChat messages', messages)
+        // Logger.message('Converting DeepChat messages', messages)
         const converted = messages.map((m, index) =>
             MessageUtils.create(
                 MessageUtils.generateId(index),
@@ -21,7 +21,7 @@ export const MessageUtils = {
                 m.text || m.content || ''
             )
         )
-        Logger.message('Converted messages', converted)
+        // Logger.message('Converted messages', converted)
         return converted
     },
 
@@ -31,7 +31,7 @@ export const MessageUtils = {
             h.role === 'user' &&
             Math.abs(Date.now() - parseInt(h.id.split('-')[1])) < APP_CONSTANTS.DUPLICATE_CHECK_WINDOW_MS
         )
-        Logger.message(`Checking duplicate for message "${msg.content}"`, isDuplicate)
+        // Logger.message(`Checking duplicate for message "${msg.content}"`, isDuplicate)
         return isDuplicate
     },
 
@@ -48,43 +48,44 @@ export const RequestUtils = {
         const body = {
             messages: chatHistory,
             runId: `run-${Date.now()}`,
-            threadId,
-            state: {
-                conversationLength: chatHistory.length,
-                lastMessageId: chatHistory[chatHistory.length - 1]?.id
-            },
+            state: "",
+            threadId: threadId,
+            // state: {
+            //     conversationLength: chatHistory.length,
+            //     lastMessageId: chatHistory[chatHistory.length - 1]?.id
+            // },
             tools: [],
             context: [],
-            forwardedProps: {}
+            forwardedProps: {},
         }
         Logger.message('Created request body', body)
         return body
     }
 }
 
-// Stream processing utilities
-export const StreamUtils = {
-    parseSSELine: (line: string): any | null => {
-        if (!line.startsWith(APP_CONSTANTS.SSE_PREFIX)) return null
-
-        const jsonStr = line.substring(APP_CONSTANTS.SSE_PREFIX.length).trim()
-        if (!jsonStr || jsonStr === APP_CONSTANTS.SSE_DONE) return null
-
-        try {
-            return JSON.parse(jsonStr)
-        } catch (e) {
-            Logger.warn('Failed to parse streaming event', line)
-            return null
-        }
-    },
-
-    initializeMessageTracking: (data: any): { id: string; content: string } => {
-        Logger.event('TEXT_MESSAGE_START', data)
-        const messageState = {id: data.messageId, content: ''}
-        Logger.message('Initialized message tracking', messageState)
-        return messageState
-    }
-}
+// // Stream processing utilities
+// export const StreamUtils = {
+//     parseSSELine: (line: string): any | null => {
+//         if (!line.startsWith(APP_CONSTANTS.SSE_PREFIX)) return null
+//
+//         const jsonStr = line.substring(APP_CONSTANTS.SSE_PREFIX.length).trim()
+//         if (!jsonStr || jsonStr === APP_CONSTANTS.SSE_DONE) return null
+//
+//         try {
+//             return JSON.parse(jsonStr)
+//         } catch (e) {
+//             Logger.warn('Failed to parse streaming event', line)
+//             return null
+//         }
+//     },
+//
+//     initializeMessageTracking: (data: any): { id: string; content: string } => {
+//         Logger.event('TEXT_MESSAGE_START', data)
+//         const messageState = {id: data.messageId, content: ''}
+//         Logger.message('Initialized message tracking', messageState)
+//         return messageState
+//     }
+// }
 
 // Validation utilities
 export const ValidationUtils = {

@@ -9,8 +9,8 @@ export const APP_CONSTANTS = {
 
     // HTTP constants
     HTTP_HEADERS: {
-        CONTENT_TYPE: 'application/json',
-        ACCEPT: 'text/event-stream'
+        'Content-Type': 'application/json',
+        'Accept': 'text/event-stream'
     },
 
     // Server-Sent Events constants
