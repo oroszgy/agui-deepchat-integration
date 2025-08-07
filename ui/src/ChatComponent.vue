@@ -59,14 +59,7 @@ const processIncomingMessages = (body: DeepChatBody): Message[] => {
 //   console.log(`Created message:`, message)
 //   return message
 // }
-//
-// // Streaming event handlers
-// const handleTextMessageStart = (data: any): { id: string; content: string } => {
-//   console.log('📩 TEXT_MESSAGE_START:', data)
-//   const messageState = {id: data.messageId, content: ''}
-//   console.log('Initialized message tracking:', messageState)
-//   return messageState
-// }
+
 
 // Main streaming handler
 const processStreamingEvents = async (
@@ -129,12 +122,12 @@ const processStreamingEvents = async (
               // Stream each delta immediately to deep-chat
               if (!streamResponse) {
                 console.log('🚀 Starting streaming response with first delta with tools: ' + toolUsage)
-                signals.onResponse({text: data.delta, overwrite: toolUsage})
+                signals.onResponse({text: data.delta, overwrite: false})
                 toolUsage = false
                 streamResponse = true
               } else {
                 console.log('➕ Appending delta to existing response')
-                signals.onResponse({text: data.delta, overwrite: toolUsage})
+                signals.onResponse({text: data.delta, overwrite: false})
                 toolUsage = false
               }
               // console.log('✅ TEXT_MESSAGE_CONTENT processed successfully')
@@ -155,7 +148,7 @@ const processStreamingEvents = async (
               toolUsage = true
 
               // Display tool call start in UI
-              const toolDisplay = '\n\n🔄 Calling: `' + `${data.toolCallName}` + '`\n'
+              const toolDisplay = '\n\n🔧 `' + `${data.toolCallName}` + '`\n'
               if (!streamResponse) {
                 signals.onResponse({text: toolDisplay})
                 streamResponse = true
@@ -239,7 +232,7 @@ const processStreamingEvents = async (
               }
 
               chatHistory.value.push(assistantMessage)
-              console.log('📚 Updated chat history. Total messages:', chatHistory.value.length)
+              console.log('📚 Updated chat history. Total messages:', chatHistory.value)
 
               // Handle case where no deltas were received
               if (!streamResponse) {
@@ -297,7 +290,7 @@ const processStreamingEvents = async (
 // Main connection handler
 const handleConnection = async (body: DeepChatBody, signals: DeepChatSignals): Promise<void> => {
   Logger.connection('New connection request started')
-  Logger.connection('Incoming body', body)
+  // Logger.connection('Incoming body', body)
 
   try {
     // Process incoming messages using utilities
@@ -395,10 +388,9 @@ const setupChatElement = async (): Promise<void> => {
       text: props.config.introMessage
     }))
 
-    // In deep-chat v2.0.0+, stream property is part of the connect object
     chatElement.value.connect = {
       handler: handleConnection,
-      stream: true // Stream property moved here in v2.0.0
+      stream: true
     }
 
     console.log('✅ Chat element configured with streaming enabled in connect object')

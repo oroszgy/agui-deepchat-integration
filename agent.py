@@ -13,7 +13,7 @@ load_dotenv()
 
 
 @dataclass
-class StateHandler():
+class StateHandler:
     state: dict[str, Any] = field(default_factory=dict)
 
 
