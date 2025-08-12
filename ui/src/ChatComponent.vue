@@ -14,7 +14,7 @@
 import {computed, nextTick, onMounted, ref} from 'vue'
 import type {ChatConfig, DeepChatBody, DeepChatElement, DeepChatSignals, Message, ToolCall} from './types'
 import {APP_CONSTANTS, createDefaultConfig, Logger} from './constants'
-import {MessageUtils, RequestUtils, ValidationUtils, ToolCallUtils} from './utils'
+import {MessageUtils, RequestUtils, ToolCallUtils, ValidationUtils} from './utils'
 
 export interface ChatComponentProps {
   config?: ChatConfig
@@ -52,13 +52,6 @@ const processIncomingMessages = (body: DeepChatBody): Message[] => {
 
   return newMessages
 }
-
-// // Helper functions
-// const createMessage = (id: string, role: Message['role'], content: string): Message => {
-//   const message = {id, role, content}
-//   console.log(`Created message:`, message)
-//   return message
-// }
 
 
 // Main streaming handler

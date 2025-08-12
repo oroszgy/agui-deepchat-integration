@@ -50,10 +50,6 @@ export const RequestUtils = {
             runId: `run-${Date.now()}`,
             state: "",
             threadId: threadId,
-            // state: {
-            //     conversationLength: chatHistory.length,
-            //     lastMessageId: chatHistory[chatHistory.length - 1]?.id
-            // },
             tools: [],
             context: [],
             forwardedProps: {},
@@ -63,29 +59,6 @@ export const RequestUtils = {
     }
 }
 
-// // Stream processing utilities
-// export const StreamUtils = {
-//     parseSSELine: (line: string): any | null => {
-//         if (!line.startsWith(APP_CONSTANTS.SSE_PREFIX)) return null
-//
-//         const jsonStr = line.substring(APP_CONSTANTS.SSE_PREFIX.length).trim()
-//         if (!jsonStr || jsonStr === APP_CONSTANTS.SSE_DONE) return null
-//
-//         try {
-//             return JSON.parse(jsonStr)
-//         } catch (e) {
-//             Logger.warn('Failed to parse streaming event', line)
-//             return null
-//         }
-//     },
-//
-//     initializeMessageTracking: (data: any): { id: string; content: string } => {
-//         Logger.event('TEXT_MESSAGE_START', data)
-//         const messageState = {id: data.messageId, content: ''}
-//         Logger.message('Initialized message tracking', messageState)
-//         return messageState
-//     }
-// }
 
 // Validation utilities
 export const ValidationUtils = {
@@ -143,7 +116,7 @@ export const ToolCallUtils = {
 
     formatToolCallDisplay: (toolCall: ToolCall): string => {
         const statusIcon = toolCall.status === 'completed' ? '✅' :
-                          toolCall.status === 'in_progress' ? '⏳' : '🔄'
+            toolCall.status === 'in_progress' ? '⏳' : '🔄'
 
         let display = `${statusIcon} **Tool Call: ${toolCall.name}**\n`
 
