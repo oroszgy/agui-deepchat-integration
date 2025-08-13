@@ -21,7 +21,7 @@ export type { ChatComponentProps } from './ChatComponent.vue'
 
 // Export utilities and constants
 export { APP_CONSTANTS, createDefaultConfig, Logger } from './constants'
-export { MessageUtils, RequestUtils, ValidationUtils } from './utils'
+export { MessageUtils, RequestUtils } from './utils'
 
 // Vue plugin install function
 export function install(app: App) {

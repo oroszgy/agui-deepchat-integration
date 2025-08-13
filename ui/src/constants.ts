@@ -9,8 +9,8 @@ export const APP_CONSTANTS = {
 
     // HTTP constants
     HTTP_HEADERS: {
-        CONTENT_TYPE: 'application/json',
-        ACCEPT: 'text/event-stream'
+        'Content-Type': 'application/json',
+        'Accept': 'text/event-stream'
     },
 
     // Server-Sent Events constants
@@ -45,13 +45,13 @@ export const createDefaultConfig = () => ({
 
 // Logging utilities
 export const Logger = {
-    message: (action: string, data: any) => console.log(`📝 ${action}:`, data),
+    message: (action: string, data?: any) => console.log(`📝 ${action}:`, data),
     stream: (action: string, data?: any) => console.log(`🔄 ${action}`, data || ''),
-    event: (type: string, data: any) => console.log(`🎯 ${type}:`, data),
+    event: (type: string, data?: any) => console.log(`🎯 ${type} `, data),
     connection: (action: string, data?: any) => console.log(`🔌 ${action}`, data || ''),
-    tool: (action: string, data: any) => console.log(`🔧 ${action}:`, data),
+    tool: (action: string, data?: any) => console.log(`🔧 ${action}:`, data),
     style: (style: string) => console.log('🎨 Applied chat style:', style),
     error: (action: string, error: any) => console.error(`❌ ${action}:`, error),
     warn: (action: string, data: any) => console.warn(`⚠️ ${action}:`, data),
-    success: (action: string, data?: any) => console.log(`✅ ${action}`, data || '')
+    success: (action: string, data?: any) => console.log(`✅ ${action}`, data || ''),
 }
