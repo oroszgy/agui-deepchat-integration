@@ -272,7 +272,7 @@ const handleConnection = async (body: DeepChatBody, signals: DeepChatSignals): P
     // Process incoming messages using utilities
     const newMessages = processIncomingMessages(body)
 
-    if (!ValidationUtils.hasUserMessage(newMessages)) {
+    if (!newMessages.some(m => m.role === 'user')) {
       Logger.warn('No user messages found, sending placeholder response', null)
       signals.onResponse({text: '[No user message to send]'})
       return

@@ -60,29 +60,6 @@ export const RequestUtils = {
 }
 
 
-// Validation utilities
-export const ValidationUtils = {
-    hasRequiredMessageId: (data: any): boolean => {
-        const isValid = data && data.messageId
-        if (!isValid) {
-            Logger.warn('Missing messageId in event', data)
-        }
-        return isValid
-    },
-
-    hasRequiredDelta: (data: any): boolean => {
-        const isValid = data && data.delta
-        if (!isValid) {
-            Logger.warn('Missing delta in content event', data)
-        }
-        return isValid
-    },
-
-    hasUserMessage: (messages: Message[]): boolean => {
-        return messages.some(m => m.role === 'user')
-    }
-}
-
 // Tool call utilities
 export const ToolCallUtils = {
 
@@ -96,9 +73,4 @@ export const ToolCallUtils = {
         }
     },
 
-    completeToolCall: (toolCall: ToolCall, result?: string): ToolCall => {
-        return {
-            ...toolCall,
-        }
-    },
 }
