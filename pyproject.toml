@@ -4,7 +4,6 @@ version = "0.1.0"
 description = "Add your description here"
 requires-python = ">=3.13"
 dependencies = [
-    "pydantic-ai>=0.4.10",
     "agno[agui,ddg,openai,sql]>=1.7.7",
     "fastapi>=0.116.1",
     "python-dotenv>=1.1.1",
