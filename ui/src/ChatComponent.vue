@@ -171,12 +171,6 @@ const processStreamingEvents = async (
 
           case 'TOOL_CALL_RESULT':
             if (data.toolCallId && data.content) {
-              // const toolCall = currentToolCalls.get(data.toolCallId)
-              // if (toolCall) {
-              //   const resultToolCall = ToolCallUtils.completeToolCall(toolCall, data.content)
-              //   currentToolCalls.set(data.toolCallId, resultToolCall)
-              //
-              // }
               const toolMessage: ToolResponse = {
                 id: data.messageId,
                 role: "tool",
