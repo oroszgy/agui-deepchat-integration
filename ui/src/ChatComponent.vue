@@ -14,7 +14,7 @@
 import {computed, nextTick, onMounted, ref} from 'vue'
 import {ChatConfig, DeepChatBody, DeepChatElement, DeepChatSignals, Message, ToolCall, ToolResponse} from './types'
 import {APP_CONSTANTS, createDefaultConfig, Logger} from './constants'
-import {MessageUtils, RequestUtils, ToolCallUtils, ValidationUtils} from './utils'
+import {MessageUtils, RequestUtils, ToolCallUtils} from './utils'
 
 export interface ChatComponentProps {
   config?: ChatConfig
@@ -59,7 +59,7 @@ const processStreamingEvents = async (
     reader: ReadableStreamDefaultReader<Uint8Array>,
     signals: DeepChatSignals
 ): Promise<void> => {
-  console.log('🔄 Starting streaming event processing')
+  Logger.event('Starting streaming event processing')
   const decoder = new TextDecoder()
   let buffer = ''
   let currentAssistantMessage: { id: string; content: string; toolCalls: ToolCall[] } | null = null
@@ -70,7 +70,7 @@ const processStreamingEvents = async (
   while (true) {
     const {done, value} = await reader.read()
     if (done) {
-      console.log('📡 Stream reading completed')
+      Logger.event('Stream reading completed')
       break
     }
 
@@ -80,7 +80,7 @@ const processStreamingEvents = async (
 
     for (const line of lines) {
       if (!line.startsWith('data: ') && line.length != 0) {
-        console.log('🔍 Skipping non-data line:', `"${line}"`)
+        Logger.event('Skipping non-data line:', `"${line}"`)
         continue
       }
 
@@ -90,9 +90,9 @@ const processStreamingEvents = async (
 
         const data = JSON.parse(jsonStr)
 
+        Logger.event('Processing ' + `"${data.type}"` + ' event')
         switch (data.type) {
           case 'TEXT_MESSAGE_START':
-            console.log('🎬 Processing TEXT_MESSAGE_START event')
             if (data.messageId) {
               currentAssistantMessage = {
                 id: data.messageId,
@@ -102,27 +102,26 @@ const processStreamingEvents = async (
               currentToolCalls.clear()
 
             } else {
-              console.warn('⚠️ TEXT_MESSAGE_START missing messageId:', data)
+              Logger.warn('TEXT_MESSAGE_START missing messageId:', data)
             }
             break
 
           case 'TEXT_MESSAGE_CONTENT':
-            console.log('📝 Processing TEXT_MESSAGE_CONTENT event')
             if (data.delta && currentAssistantMessage) {
               currentAssistantMessage.content += data.delta
 
               // Stream each delta immediately to deep-chat
               if (!streamResponse) {
-                console.log('🚀 Starting streaming response with first delta with tools: ')
+                Logger.stream('Starting streaming response with first delta with tools: ')
                 signals.onResponse({text: data.delta})
                 streamResponse = true
               } else {
-                console.log('➕ Appending delta to existing response')
+                Logger.stream('Appending delta to existing response')
                 signals.onResponse({text: data.delta})
               }
 
             } else {
-              console.warn('⚠️ TEXT_MESSAGE_CONTENT missing delta or no current message:', {
+              Logger.warn('TEXT_MESSAGE_CONTENT missing delta or no current message:', {
                 hasDelta: !!data.delta,
                 hasCurrentMessage: !!currentAssistantMessage,
                 data
@@ -131,7 +130,6 @@ const processStreamingEvents = async (
             break
 
           case 'TOOL_CALL_START':
-            console.log('🔧 Processing TOOL_CALL_START event:', data)
             if (data.toolCallId && data.toolCallName) {
               const toolCall: ToolCall = {
                 id: data.toolCallId,
@@ -139,6 +137,7 @@ const processStreamingEvents = async (
                 function: {name: data.toolCallName, arguments: ""}
               }
               currentToolCalls.set(data.toolCallId, toolCall)
+              Logger.tool("Tool call started " + toolCall)
 
               // Display tool call start in UI
               const toolDisplay = '\n\n🔧 `' + `${data.toolCallName}` + '`\n'
@@ -152,7 +151,6 @@ const processStreamingEvents = async (
             break
 
           case 'TOOL_CALL_ARGS':
-            console.log('🔧 Processing TOOL_CALL_ARGS event:', data)
             if (data.toolCallId && data.delta) {
               const toolCall = currentToolCalls.get(data.toolCallId)
               if (toolCall) {
@@ -163,18 +161,15 @@ const processStreamingEvents = async (
             break
 
           case 'TOOL_CALL_END':
-            console.log('🔧 Processing TOOL_CALL_END event:', data)
             if (data.toolCallId) {
               const toolCall = currentToolCalls.get(data.toolCallId)
               if (toolCall) {
                 signals.onResponse({text: "", overwrite: true})
               }
-              console.log('Tool call completed:', {toolCallId: data.toolCallId})
             }
             break
 
           case 'TOOL_CALL_RESULT':
-            console.log('🔧 Processing TOOL_CALL_RESULT event:', data)
             if (data.toolCallId && data.content) {
               // const toolCall = currentToolCalls.get(data.toolCallId)
               // if (toolCall) {
@@ -188,14 +183,12 @@ const processStreamingEvents = async (
                 content: data.content,
                 toolCallId: data.toolCallId,
               }
-              console.log('Tool call result:', toolMessage)
+              Logger.tool('Tool call completed:', toolMessage)
               toolResponses.push(toolMessage)
-              console.log('📚 Updated chat history. Total messages:', chatHistory.value)
             }
             break
 
           case 'TEXT_MESSAGE_END':
-            console.log('🏁 Processing TEXT_MESSAGE_END event')
             if (currentAssistantMessage) {
               // Add all tool calls to the message
               currentAssistantMessage.toolCalls = Array.from(currentToolCalls.values())
@@ -211,11 +204,11 @@ const processStreamingEvents = async (
               chatHistory.value.push(...toolResponses)
               toolResponses = []
 
-              console.log('📚 Updated chat history. Total messages:', chatHistory.value)
+              Logger.message('📚 Updated chat history. Total messages:', chatHistory.value)
 
               // Handle case where no deltas were received
               if (!streamResponse) {
-                console.log('⚠️ Edge case: No deltas received, sending complete content')
+                Logger.warn('Edge case: No deltas received, sending complete content', data)
                 signals.onResponse({text: currentAssistantMessage.content})
               }
 
@@ -226,22 +219,19 @@ const processStreamingEvents = async (
             break
 
           case 'RUN_STARTED':
-            console.log('🚀 Processing RUN_STARTED event:', data)
             break
 
           case 'RUN_FINISHED':
-            console.log('🏁 Processing RUN_FINISHED event:', data)
             // Close the stream if it was opened
             if (streamResponse && typeof streamResponse.onFinish === 'function') {
-              console.log('🔒 Closing stream response')
+              Logger.stream('Closing stream response')
               streamResponse.onFinish()
             }
-            // console.log('🏁 RUN_FINISHED - ending stream processing')
             return
 
           case 'ERROR':
-            console.error('❌ Processing ERROR event:', data)
-            console.error('Error details:', {
+            Logger.error('Processing ERROR event:', data)
+            Logger.error('Error details:', {
               message: data.message,
               code: data.code,
               details: data.details
@@ -253,11 +243,10 @@ const processStreamingEvents = async (
             return
 
           default:
-            console.log('🔍 Processing unknown event type:', data.type)
-            console.log('🔍 Full event data:', data)
+            Logger.warn('Processing unknown event type:', data)
         }
       } catch (e) {
-        console.warn('⚠️ Failed to parse streaming event:', line, e)
+        Logger.warn('Failed to parse streaming event:', line, e)
       }
     }
   }
@@ -349,7 +338,7 @@ const setupChatElement = async (): Promise<void> => {
   await new Promise(resolve => setTimeout(resolve, 100))
 
   if (!chatElement.value) {
-    console.error('Chat element not found after initialization delay')
+    Logger.error('Chat element not found after initialization delay', chatElement)
     return
   }
 
@@ -369,9 +358,9 @@ const setupChatElement = async (): Promise<void> => {
       stream: true
     }
 
-    console.log('✅ Chat element configured with streaming enabled in connect object')
+    Logger.message('Chat element configured with streaming enabled in connect object')
   } catch (error) {
-    console.error('Error setting up chat element:', error)
+    Logger.error('Error setting up chat element:', error)
   }
 }
 
