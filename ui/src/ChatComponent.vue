@@ -246,7 +246,7 @@ const processStreamingEvents = async (
             Logger.warn('Processing unknown event type:', data)
         }
       } catch (e) {
-        Logger.warn('Failed to parse streaming event:', line, e)
+        Logger.error('Failed to parse streaming event: ' + line, e)
       }
     }
   }
