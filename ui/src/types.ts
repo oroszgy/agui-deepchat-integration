@@ -49,20 +49,19 @@ export interface Message {
 
 // Tool call interfaces
 export interface ToolCall {
-    id: string
-    name: string
-    args: string
-    result?: string
-    status: 'started' | 'in_progress' | 'completed'
+  id: string // Unique ID for this tool call
+  type: "function" // Type of tool call
+  function: {
+    name: string // Name of the function to call
+    arguments: string // JSON-encoded string of arguments
+  }
 }
 
-export interface ToolCallEvent {
-    toolCallId: string
-    toolCallName?: string
-    parentMessageId?: string
-    delta?: string
-    content?: string
-    role?: string
+export interface ToolResponse {
+    id: string
+    role: 'tool'
+    content: string
+    toolCallId: string // References the original tool call
 }
 
 // Chat Configuration

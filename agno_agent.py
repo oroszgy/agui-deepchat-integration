@@ -27,7 +27,7 @@ def random_number(agent: Agent, min: int = 1, max: int = 100):
 @tool(
     description="Waits for a number of seconds",
     name="wait",
-    show_result=True,
+    # show_result=True,
     # requires_user_input=True,
 )
 def wait(agent: Agent, seconds: int):

@@ -85,49 +85,20 @@ export const ValidationUtils = {
 
 // Tool call utilities
 export const ToolCallUtils = {
-    createToolCall: (id: string, name: string): ToolCall => {
-        return {
-            id,
-            name,
-            args: '',
-            status: 'started'
-        }
-    },
 
     updateToolCallArgs: (toolCall: ToolCall, delta: string): ToolCall => {
         return {
             ...toolCall,
-            args: toolCall.args + delta,
-            status: 'in_progress'
+            function: {
+                ...toolCall.function,
+                arguments: toolCall.function.arguments + delta,
+            }
         }
     },
 
     completeToolCall: (toolCall: ToolCall, result?: string): ToolCall => {
         return {
             ...toolCall,
-            result: result || '',
-            status: 'completed'
         }
     },
-
-    findToolCall: (toolCalls: ToolCall[], id: string): ToolCall | undefined => {
-        return toolCalls.find(tc => tc.id === id)
-    },
-
-    formatToolCallDisplay: (toolCall: ToolCall): string => {
-        const statusIcon = toolCall.status === 'completed' ? '✅' :
-            toolCall.status === 'in_progress' ? '⏳' : '🔄'
-
-        let display = `${statusIcon} **Tool Call: ${toolCall.name}**\n`
-
-        if (toolCall.args) {
-            display += `📋 Arguments: \`${toolCall.args}\`\n`
-        }
-
-        if (toolCall.result) {
-            display += `📤 Result: ${toolCall.result}\n`
-        }
-
-        return display + '\n'
-    }
 }
